@@ -61,16 +61,15 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_deal(update, context)
 
 # ▶️ Запуск бота
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     app.add_handler(CallbackQueryHandler(choose_category))
-    
+
     print("✅ main() запущен, устанавливаем webhook...")
 
-    # 🔗 Telegram узнаёт, куда слать обновления
     await app.bot.set_webhook(f"https://{HEROKU_APP_NAME}.herokuapp.com/")
 
     PORT = int(os.environ.get("PORT", 8443))
@@ -79,6 +78,7 @@ async def main():
         port=PORT,
         webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/"
     )
+
 
 
 if __name__ == "__main__":
