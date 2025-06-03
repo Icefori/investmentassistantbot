@@ -1,4 +1,3 @@
-
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler,
@@ -7,9 +6,9 @@ from telegram.ext import (
 from handlers.deal import handle_deal, choose_category
 from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
-from utils.parser import update_prices_json_from_portfolio  # обновление цен
+from utils.parser import update_prices_json_from_portfolio
 
-# 🔐 Загрузка токена (временно вручную)
+# 🔐 Загрузка токена
 import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -32,19 +31,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # ✅ Обработка кнопок
     if text in ["📊 Мой портфель", "💰 Дивиденды", "📰 Новости", "⚙️ Настройки"]:
         context.user_data.pop("input_mode", None)
-
         if text == "📊 Мой портфель":
-            update_prices_json_from_portfolio()  # 🔄 Сначала обновим цены
+            update_prices_json_from_portfolio()
             summary = summarize_portfolio()
             await update.message.reply_text(summary, parse_mode="Markdown")
         else:
             await update.message.reply_text("🔔 Раздел в разработке. Ожидайте обновления.")
         return
 
-    # ➕ Вход в режим сделок
     if text == "➕ Сделка":
         context.user_data["input_mode"] = "deals"
         await send_markdown(update,
@@ -52,11 +48,9 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Формат: `Тикер Кол-во Цена [Валюта] [Дата]`\n"
             "Пример: `KZAP 10 17200`\n"
             "Нажмите любую кнопку, чтобы выйти из режима."
-
         )
         return
 
-    # 💼 Обработка сделок
     if context.user_data.get("input_mode") == "deals":
         await handle_deal(update, context)
 
@@ -70,15 +64,18 @@ async def main():
 
     print("✅ main() запущен, устанавливаем webhook...")
 
-    await app.bot.set_webhook(f"https://{HEROKU_APP_NAME}.herokuapp.com/")
-
+    WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+    WEBHOOK_URL = f"https://{HEROKU_APP_NAME}.herokuapp.com{WEBHOOK_PATH}"
     PORT = int(os.environ.get("PORT", 8443))
+
+    await app.bot.set_webhook(WEBHOOK_URL)
+
     await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/"
+        webhook_url=WEBHOOK_URL,
+        webhook_path=WEBHOOK_PATH
     )
-
 
 if __name__ == "__main__":
     import nest_asyncio
