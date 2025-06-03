@@ -12,6 +12,9 @@ from utils.parser import update_prices_json_from_portfolio  # обновлени
 # 🔐 Загрузка токена (временно вручную)
 import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN не найден. Установите переменную окружения.")
+HEROKU_APP_NAME = "investmentsassistant-bot"
 
 # 📋 Главное меню
 menu_keyboard = [
@@ -58,11 +61,20 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_deal(update, context)
 
 # ▶️ Запуск бота
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+async def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-app.add_handler(CallbackQueryHandler(choose_category))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    app.add_handler(CallbackQueryHandler(choose_category))
 
-print("Бот запущен — ждём сообщения в Telegram!")
-app.run_polling()
+    PORT = int(os.environ.get("PORT", 8443))
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/"
+    )
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
