@@ -10,7 +10,8 @@ from utils.formatter import send_markdown
 from utils.parser import update_prices_json_from_portfolio  # обновление цен
 
 # 🔐 Загрузка токена (временно вручную)
-BOT_TOKEN = "7889127674:AAHt4h9V0uWWCCk59uvQRs3vzOrlP8Ww328"
+import os
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # 📋 Главное меню
 menu_keyboard = [
@@ -57,13 +58,11 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_deal(update, context)
 
 # ▶️ Запуск бота
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    app.add_handler(CallbackQueryHandler(choose_category))
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+app.add_handler(CallbackQueryHandler(choose_category))
 
-    print("Попытка запуска...")
-    print("Бот запущен — ждём сообщения в Telegram!")
-    app.run_polling()
+print("Бот запущен — ждём сообщения в Telegram!")
+app.run_polling()
