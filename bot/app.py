@@ -67,6 +67,8 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     app.add_handler(CallbackQueryHandler(choose_category))
+    
+    print("✅ main() запущен, устанавливаем webhook...")
 
     # 🔗 Telegram узнаёт, куда слать обновления
     await app.bot.set_webhook(f"https://{HEROKU_APP_NAME}.herokuapp.com/")
