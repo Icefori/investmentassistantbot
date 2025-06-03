@@ -68,12 +68,16 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     app.add_handler(CallbackQueryHandler(choose_category))
 
+    # 🔗 Telegram узнаёт, куда слать обновления
+    await app.bot.set_webhook(f"https://{HEROKU_APP_NAME}.herokuapp.com/")
+
     PORT = int(os.environ.get("PORT", 8443))
     await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/"
     )
+
 
 if __name__ == "__main__":
     import asyncio
