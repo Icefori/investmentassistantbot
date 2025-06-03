@@ -91,9 +91,9 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sign = "➕ Покупка" if qty > 0 else "➖ Продажа"
             currency_display = portfolio[ticker]["currency"]
             response = (
-                f"✅ Сделка добавлена\\n\\n"
-                f"*{ticker}* | {sign}\\n"
-                f"{abs(qty)} шт × {price:.2f} {currency_display}\\n"
+                f"✅ Сделка добавлена\n\n"
+                f"*{ticker}* | {sign}\n"
+                f"{abs(qty)} шт × {price:.2f} {currency_display}\n"
                 f"📅 Дата: {date}"
             )
             await update.message.reply_text(response, parse_mode="Markdown")
