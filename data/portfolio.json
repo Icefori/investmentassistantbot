@@ -1,0 +1,119 @@
+{
+  "HSBK": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 500,
+        "price": 217.0,
+        "date": "20-08-2024"
+      },
+      {
+        "qty": 15,
+        "price": 213.0,
+        "date": "22-08-2024"
+      },
+      {
+        "qty": 10,
+        "price": 211.72,
+        "date": "28-08-2024"
+      },
+      {
+        "qty": 1000,
+        "price": 303.23,
+        "date": "28-05-2025"
+      }
+    ]
+  },
+  "KSPI": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 1,
+        "price": 63601.0,
+        "date": "20-08-2024"
+      },
+      {
+        "qty": 2,
+        "price": 44599.0,
+        "date": "28-05-2025"
+      }
+    ]
+  },
+  "KZAP": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 1,
+        "price": 18149.9,
+        "date": "20-08-2024"
+      },
+      {
+        "qty": 7,
+        "price": 20019.0,
+        "date": "28-05-2025"
+      }
+    ]
+  },
+  "KEGC": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 100,
+        "price": 1429.0,
+        "date": "28-05-2025"
+      },
+      {
+        "qty": 40,
+        "price": 1435.9,
+        "date": "30-05-2025"
+      }
+    ]
+  },
+  "KMGZ": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 7,
+        "price": 14495.0,
+        "date": "28-05-2025"
+      }
+    ]
+  },
+  "KZTO": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 120,
+        "price": 878.79,
+        "date": "28-05-2025"
+      },
+      {
+        "qty": 100,
+        "price": 799.11,
+        "date": "30-05-2025"
+      }
+    ]
+  },
+  "CCBN": {
+    "category": "KZ",
+    "currency": "KZT",
+    "transactions": [
+      {
+        "qty": 1,
+        "price": 3090.0,
+        "date": "30-05-2025"
+      },
+      {
+        "qty": -1,
+        "price": 3114.05,
+        "date": "03-06-2025"
+      }
+    ]
+  }
+}
