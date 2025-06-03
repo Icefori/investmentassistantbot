@@ -8,14 +8,12 @@ from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
 from utils.parser import update_prices_json_from_portfolio
 
-# 🔐 Загрузка токена
 import os
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("❌ BOT_TOKEN не найден. Установите переменную окружения.")
-HEROKU_APP_NAME = "investmentsassistant-bot"
 
-# 📋 Главное меню
 menu_keyboard = [
     ["📊 Мой портфель", "➕ Сделка"],
     ["💰 Дивиденды", "📰 Новости"],
@@ -23,11 +21,9 @@ menu_keyboard = [
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
-# 🚀 Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Выберите действие:", reply_markup=reply_markup)
 
-# 🧠 Обработка всех сообщений
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
@@ -55,31 +51,19 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_deal(update, context)
 
 # ▶️ Запуск бота
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-async def main():
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    app.add_handler(CallbackQueryHandler(choose_category))
-
-    print("✅ main() запущен, устанавливаем webhook...")
-
-    WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
-    WEBHOOK_URL = f"https://{HEROKU_APP_NAME}.herokuapp.com{WEBHOOK_PATH}"
-    PORT = int(os.environ.get("PORT", 8443))
-
-    await app.bot.set_webhook(WEBHOOK_URL)
-
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=WEBHOOK_URL,
-        webhook_path=WEBHOOK_PATH
-    )
-
 if __name__ == "__main__":
     import nest_asyncio
     import asyncio
 
     nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
+
+    async def main():
+        app = ApplicationBuilder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+        app.add_handler(CallbackQueryHandler(choose_category))
+
+        print("✅ Бот запускается через polling...")
+        await app.run_polling()
+
+    asyncio.run(main())
