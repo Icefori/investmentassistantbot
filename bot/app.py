@@ -54,7 +54,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("input_mode", None)
 
         if text == "📊 Мой портфель":
-            update_prices_json_from_portfolio()
+            await update_prices_json_from_portfolio()
             summary = await summarize_portfolio()
             await update.message.reply_text(summary, parse_mode="Markdown")
         else:
