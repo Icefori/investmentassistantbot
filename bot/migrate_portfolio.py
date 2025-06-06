@@ -1,31 +1,48 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from bot.db import connect_db
 import json
 import asyncio
-from db import connect_db
 
 PORTFOLIO_PATH = "data/portfolio.json"
 
 async def migrate():
-    # Шаг 1: Подключение к базе
     conn = await connect_db()
 
-    # Шаг 2: Чтение портфеля
+    # Пример создания таблицы
+    await conn.execute("""
+    CREATE TABLE IF NOT EXISTS portfolio (
+        ticker TEXT PRIMARY KEY,
+        category TEXT,
+        currency TEXT
+    );
+    """)
+
+    await conn.execute("""
+    CREATE TABLE IF NOT EXISTS transactions (
+        id SERIAL PRIMARY KEY,
+        ticker TEXT REFERENCES portfolio(ticker),
+        qty INT,
+        price FLOAT,
+        date TEXT
+    );
+    """)
+
     with open(PORTFOLIO_PATH, "r", encoding="utf-8") as f:
-        portfolio = json.load(f)
+        data = json.load(f)
 
-    # Шаг 3: Очистка таблицы (опционально)
-    await conn.execute("DELETE FROM deals;")
+    for ticker, details in data.items():
+        await conn.execute("INSERT INTO portfolio (ticker, category, currency) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", 
+            ticker, details["category"], details["currency"])
 
-    # Шаг 4: Добавление всех сделок
-    for ticker, data in portfolio.items():
-        currency = data["currency"]
-        for tx in data.get("transactions", []):
-            await conn.execute("""
-                INSERT INTO deals (ticker, quantity, price, currency, date)
-                VALUES ($1, $2, $3, $4, $5);
-            """, ticker, tx["qty"], tx["price"], currency, tx["date"])
+        for tx in details["transactions"]:
+            await conn.execute("INSERT INTO transactions (ticker, qty, price, date) VALUES ($1, $2, $3, $4)", 
+                ticker, tx["qty"], tx["price"], tx["date"])
 
+    print("✅ Данные перенесены в PostgreSQL")
     await conn.close()
-    print("✅ Данные успешно мигрированы в базу.")
 
 if __name__ == "__main__":
     asyncio.run(migrate())

@@ -7,6 +7,7 @@ from handlers.deal import handle_deal, choose_category
 from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
 from utils.parser import update_prices_json_from_portfolio
+from bot.db import init_db
 
 import os
 
@@ -56,6 +57,8 @@ if __name__ == "__main__":
     import asyncio
 
     nest_asyncio.apply()
+    asyncio.run(init_db())  # создаём таблицу
+
 
     async def main():
         app = ApplicationBuilder().token(BOT_TOKEN).build()
