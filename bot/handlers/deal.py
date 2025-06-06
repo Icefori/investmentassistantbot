@@ -1,8 +1,7 @@
-import os
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes
-from bot.db import connect_db  # новая строка
+from bot.db import connect_db
 
 CURRENCY_CODES = {"KZT", "USD", "EUR", "RUB", "GBP", "CHF", "JPY", "CNY"}
 
@@ -38,12 +37,28 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return
 
-        # Новая логика: сохраняем в БД
         conn = await connect_db()
+
+        # 1. Вставить в portfolio, если тикера нет
         await conn.execute(
-            "INSERT INTO deals (ticker, quantity, price, currency, date) VALUES ($1, $2, $3, $4, $5)",
-            ticker, qty, price, currency or "KZT", date
+            """
+            INSERT INTO portfolio (ticker, category, currency)
+            VALUES ($1, 'KZ', $2)
+            ON CONFLICT (ticker) DO NOTHING
+            """,
+            ticker,
+            currency or "KZT"
         )
+
+        # 2. Добавить сделку
+        await conn.execute(
+            """
+            INSERT INTO transactions (ticker, qty, price, date)
+            VALUES ($1, $2, $3, $4)
+            """,
+            ticker, qty, price, date
+        )
+
         await conn.close()
 
         sign = "➕ Покупка" if qty > 0 else "➖ Продажа"
@@ -59,7 +74,6 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
-# Пока выбираем валюту и категорию через кнопки не используем, можно адаптировать позже под SQL
 async def choose_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text("Категории будут поддерживаться позже.")

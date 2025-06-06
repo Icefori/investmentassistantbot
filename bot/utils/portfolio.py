@@ -1,14 +1,11 @@
-import json
-import os
-from collections import defaultdict
+import asyncpg
 from datetime import datetime, date
+from collections import defaultdict
 from math import isclose
+from bot.db import connect_db
+from pathlib import Path
 
-PORTFOLIO_PATH = "data/portfolio.json"
-PRICES_PATH = "data/prices.json"
-
-
-def xirr(cash_flows):
+async def xirr(cash_flows):
     def npv(rate):
         return sum(cf / ((1 + rate) ** ((d - d0).days / 365)) for d, cf in cash_flows)
 
@@ -25,19 +22,14 @@ def xirr(cash_flows):
             high = mid
     return None
 
+async def summarize_portfolio():
+    conn = await connect_db()
+    portfolio_rows = await conn.fetch("SELECT * FROM portfolio")
+    transactions_rows = await conn.fetch("SELECT * FROM transactions")
+    await conn.close()
 
-def summarize_portfolio():
-    if not os.path.exists(PORTFOLIO_PATH):
+    if not portfolio_rows:
         return "❗ Портфель пуст. Добавьте хотя бы одну сделку."
-
-    with open(PORTFOLIO_PATH, "r", encoding="utf-8") as f:
-        portfolio = json.load(f)
-
-    if not os.path.exists(PRICES_PATH):
-        return "❗ Нет данных о ценах. Нажмите '📊 Мой портфель' чтобы обновить."
-
-    with open(PRICES_PATH, "r", encoding="utf-8") as f:
-        prices = json.load(f)
 
     today = date.today()
     full_cash_flows = []
@@ -47,10 +39,26 @@ def summarize_portfolio():
     ticker_data = {}
     tickers_by_category = defaultdict(list)
 
-    for ticker, data in portfolio.items():
-        category = data.get("category", "Unknown")
-        currency = data.get("currency", "KZT")
-        transactions = data.get("transactions", [])
+    prices_path = Path("data/prices.json")
+    if not prices_path.exists():
+        return "❗ Нет данных о ценах. Нажмите '📊 Мой портфель' чтобы обновить."
+
+    import json
+    with prices_path.open("r", encoding="utf-8") as f:
+        prices = json.load(f)
+
+    transactions_by_ticker = defaultdict(list)
+    for row in transactions_rows:
+        transactions_by_ticker[row["ticker"]].append(dict(row))
+
+    for row in portfolio_rows:
+        ticker = row["ticker"]
+        category = row["category"]
+        currency = row["currency"]
+        transactions = transactions_by_ticker.get(ticker, [])
+
+        if not transactions:
+            continue
 
         total_qty = 0
         total_cost = 0.0
@@ -103,7 +111,7 @@ def summarize_portfolio():
     for category in sorted(tickers_by_category):
         for currency, total_sum in category_totals[category].items():
             category_percent = (total_sum / total_portfolio_value) * 100 if total_portfolio_value else 0
-            xirr_result = xirr(category_cashflows[category]) if category_cashflows[category] else None
+            xirr_result = await xirr(category_cashflows[category]) if category_cashflows[category] else None
             if xirr_result is not None:
                 inflow = sum(cf for d, cf in category_cashflows[category] if cf > 0)
                 outflow = -sum(cf for d, cf in category_cashflows[category] if cf < 0)
@@ -130,15 +138,11 @@ def summarize_portfolio():
                 gain_amount = gain * t["qty"]
                 gain_percent = (gain / t["avg_price"]) * 100 if t["avg_price"] else 0
 
-                lines.append(
-                    f"`{ticker}` — {t['qty']} шт | {t['total']:,.2f} {t['currency']} ({percent:.1f}%)"
-                )
-                lines.append(
-                    f"{gain_sign} {gain_amount:,.0f} ({gain_percent:+.1f}%) за {holding_days} дн."
-                )
+                lines.append(f"`{ticker}` — {t['qty']} шт | {t['total']:,.2f} {t['currency']} ({percent:.1f}%)")
+                lines.append(f"{gain_sign} {gain_amount:,.0f} ({gain_percent:+.1f}%) за {holding_days} дн.")
             lines.append("")
 
-    xirr_result = xirr(full_cash_flows)
+    xirr_result = await xirr(full_cash_flows)
     if xirr_result is not None:
         inflow = sum(cf for d, cf in full_cash_flows if cf > 0)
         outflow = -sum(cf for d, cf in full_cash_flows if cf < 0)
