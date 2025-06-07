@@ -35,7 +35,8 @@ async def get_price_kase(ticker: str) -> float | None:
             return None
 
         return float(closes[-1])
-    except Exception:
+    except Exception as ex:
+        print(f"❌ Ошибка при получении цены с KASE для {ticker}: {ex}")
         return None
 
 # Получение цены с Yahoo (синхронно)
@@ -46,8 +47,10 @@ def get_price_from_yahoo(ticker):
         if hist.empty:
             return None
         return float(hist["Close"].iloc[-1])
-    except:
+    except Exception as ex:
+        print(f"❌ Ошибка при получении цены с Yahoo для {ticker}: {ex}")
         return None
+
 
 # Обновление prices.json на основе данных из PostgreSQL
 async def update_prices_json_from_portfolio():
@@ -60,10 +63,14 @@ async def update_prices_json_from_portfolio():
         category = record["category"]
         price = None
 
-        if category == "KZ":
-            price = await get_price_kase(ticker)
-        else:
-            price = get_price_from_yahoo(ticker)
+        try:
+            if category == "KZ":
+                price = await get_price_kase(ticker)
+            else:
+                price = get_price_from_yahoo(ticker)
+        except Exception as ex:
+            print(f"❌ Ошибка при получении цены для {ticker}: {ex}")
+            price = None
 
         if price:
             prices[ticker] = round(price, 2)

@@ -142,6 +142,10 @@ async def summarize_portfolio():
                 lines.append(f"{gain_sign} {gain_amount:,.0f} ({gain_percent:+.1f}%) за {holding_days} дн.")
             lines.append("")
 
+        if not full_cash_flows:
+            lines.append("⚠️ *Недостаточно данных для расчета XIRR.*")
+            return "\n".join(lines)
+
     xirr_result = await xirr(full_cash_flows)
     if xirr_result is not None:
         inflow = sum(cf for d, cf in full_cash_flows if cf > 0)
@@ -151,5 +155,5 @@ async def summarize_portfolio():
         lines.append(f"📈 *Итог XIRR по портфелю:* {xirr_result * 100:+.2f}% | {gain_str}")
     else:
         lines.append("⚠️ *XIRR не удалось рассчитать.*")
-
+    
     return "\n".join(lines)
