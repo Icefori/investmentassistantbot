@@ -23,7 +23,7 @@ if not BOT_TOKEN:
 menu_keyboard = [
     ["📊 Мой портфель", "➕ Сделка"],
     ["💰 Дивиденды", "📰 Новости"],
-    ["📤 Экспорт в Excel"]
+    ["📤 Экспорт"]
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
@@ -71,6 +71,8 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Нажмите любую кнопку, чтобы выйти из режима."
         )
         return
+    elif text == "📤 Экспорт":
+        await export_to_excel(update, context)
 
     if context.user_data.get("input_mode") == "deals":
         await handle_deal(update, context)
