@@ -69,6 +69,9 @@ async def update_prices_json_from_portfolio():
 
         if price:
             prices[ticker] = round(price, 2)
+        if not price:
+            print(f"❌ Цена для {ticker} не найдена!")
+
 
     await conn.close()
 
