@@ -13,6 +13,7 @@ from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
 from utils.parser import update_prices_json_from_portfolio
 from bot.db import init_db, connect_db
+from bot.utils.export import export_to_excel
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -22,7 +23,7 @@ if not BOT_TOKEN:
 menu_keyboard = [
     ["📊 Мой портфель", "➕ Сделка"],
     ["💰 Дивиденды", "📰 Новости"],
-    ["⚙️ Настройки"]
+    ["📤 Экспорт в Excel"]
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
@@ -73,6 +74,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("input_mode") == "deals":
         await handle_deal(update, context)
+    
 
 
 # ▶️ Запуск бота
