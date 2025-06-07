@@ -1,15 +1,13 @@
-
 import json
-import requests
-import asyncpg
+import aiohttp
 from datetime import datetime
 import yfinance as yf
 from bot.db import connect_db
 
 PRICES_PATH = "data/prices.json"
 
-# Получение цены с сайта KASE
-def get_price_kase(ticker: str) -> float | None:
+# Получение цены с сайта KASE (асинхронно)
+async def get_price_kase(ticker: str) -> float | None:
     try:
         now = int(datetime.now().timestamp())
         seven_days_ago = now - 7 * 86400
@@ -26,21 +24,21 @@ def get_price_kase(ticker: str) -> float | None:
             "Referer": f"https://old.kase.kz/ru/shares/show/{ticker}/"
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            return None
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10) as response:
+                if response.status != 200:
+                    return None
+                data = await response.json()
 
-        data = response.json()
         closes = data.get("c", [])
         if not closes:
             return None
 
         return float(closes[-1])
-
     except Exception:
         return None
 
-# Получение цены с Yahoo
+# Получение цены с Yahoo (синхронно)
 def get_price_from_yahoo(ticker):
     try:
         data = yf.Ticker(ticker)
@@ -51,7 +49,7 @@ def get_price_from_yahoo(ticker):
     except:
         return None
 
-# Обновление цен по тикерам из БД
+# Обновление prices.json на основе данных из PostgreSQL
 async def update_prices_json_from_portfolio():
     conn = await connect_db()
     records = await conn.fetch("SELECT ticker, category FROM portfolio")
@@ -65,14 +63,13 @@ async def update_prices_json_from_portfolio():
         if category == "KZ":
             price = await get_price_kase(ticker)
         else:
-            price = await get_price_from_yahoo(ticker)
+            price = get_price_from_yahoo(ticker)
 
         if price:
             prices[ticker] = round(price, 2)
-        if not price:
+        else:
             print(f"❌ Цена для {ticker} не найдена!")
-        
-    
+
     await conn.close()
 
     with open(PRICES_PATH, "w", encoding="utf-8") as f:
