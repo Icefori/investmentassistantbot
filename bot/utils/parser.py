@@ -27,8 +27,14 @@ async def get_price_kase(ticker: str) -> float | None:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=10) as response:
                 if response.status != 200:
-                    return None
-                data = await response.json()
+                  print(f"⚠️ Статус не 200 для {ticker}: {response.status}")
+                return None
+            text = await response.text()
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                print(f"⚠️ Не удалось распарсить JSON для {ticker}: {text[:100]}")
+                return None
 
         closes = data.get("c", [])
         if not closes:

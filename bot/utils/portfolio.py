@@ -5,11 +5,15 @@ from math import isclose
 from bot.db import connect_db
 from pathlib import Path
 
-async def xirr(cash_flows):
+async def xirr(cash_flows: list[tuple[datetime, float]]) -> float | None:
+    if not cash_flows:
+        return None  # 🔐 защита от пустого списка
+
+    d0 = min(d for d, _ in cash_flows)
+
     def npv(rate):
         return sum(cf / ((1 + rate) ** ((d - d0).days / 365)) for d, cf in cash_flows)
 
-    d0 = min(d for d, _ in cash_flows)
     low, high = -0.999, 10.0
     for _ in range(100):
         mid = (low + high) / 2
@@ -21,6 +25,7 @@ async def xirr(cash_flows):
         else:
             high = mid
     return None
+
 
 async def summarize_portfolio():
     conn = await connect_db()
