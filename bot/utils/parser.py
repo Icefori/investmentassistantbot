@@ -63,16 +63,16 @@ async def update_prices_json_from_portfolio():
         price = None
 
         if category == "KZ":
-            price = get_price_kase(ticker)
+            price = await get_price_kase(ticker)
         else:
-            price = get_price_from_yahoo(ticker)
+            price = await get_price_from_yahoo(ticker)
 
         if price:
             prices[ticker] = round(price, 2)
         if not price:
             print(f"❌ Цена для {ticker} не найдена!")
-
-
+        
+    
     await conn.close()
 
     with open(PRICES_PATH, "w", encoding="utf-8") as f:
