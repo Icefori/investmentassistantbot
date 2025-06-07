@@ -26,29 +26,25 @@ async def get_price_kase(ticker: str) -> float | None:
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=10) as response:
-                content_type = response.headers.get("Content-Type", "")
-                if "application/json" not in content_type:
-                    print(f"⚠️ Некорректный тип контента для {ticker}: {content_type}")
-                    return None
-
                 text = await response.text()
+
                 try:
                     data = json.loads(text)
                 except json.JSONDecodeError:
-                    print(f"⚠️ Не удалось распарсить JSON для {ticker}: {text[:100]}")
+                    print(f"⚠️ Невозможно распарсить JSON для {ticker}: {text[:100]}")
                     return None
 
                 closes = data.get("c", [])
                 if not closes:
-                    print(f"⚠️ Нет цен в ответе для {ticker}")
+                    print(f"⚠️ Нет данных 'c' для {ticker}")
                     return None
 
-                # ✅ Возвращаем последнюю известную цену
                 return float(closes[-1])
 
     except Exception as ex:
         print(f"❌ Ошибка при получении цены с KASE для {ticker}: {ex}")
         return None
+
 
 
 
