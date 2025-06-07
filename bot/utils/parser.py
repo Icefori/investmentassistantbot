@@ -26,24 +26,31 @@ async def get_price_kase(ticker: str) -> float | None:
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=10) as response:
-                if response.status != 200:
-                  print(f"⚠️ Статус не 200 для {ticker}: {response.status}")
-                return None
-            text = await response.text()
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                print(f"⚠️ Не удалось распарсить JSON для {ticker}: {text[:100]}")
-                return None
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" not in content_type:
+                    print(f"⚠️ Некорректный тип контента для {ticker}: {content_type}")
+                    return None
 
-        closes = data.get("c", [])
-        if not closes:
-            return None
+                text = await response.text()
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    print(f"⚠️ Не удалось распарсить JSON для {ticker}: {text[:100]}")
+                    return None
 
-        return float(closes[-1])
+                closes = data.get("c", [])
+                if not closes:
+                    print(f"⚠️ Нет цен в ответе для {ticker}")
+                    return None
+
+                # ✅ Возвращаем последнюю известную цену
+                return float(closes[-1])
+
     except Exception as ex:
         print(f"❌ Ошибка при получении цены с KASE для {ticker}: {ex}")
         return None
+
+
 
 # Получение цены с Yahoo (синхронно)
 def get_price_from_yahoo(ticker):
