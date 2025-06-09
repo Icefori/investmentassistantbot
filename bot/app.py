@@ -12,7 +12,7 @@ from handlers.deal import handle_deal, choose_category
 from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
 from utils.parser import update_prices_json_from_portfolio
-from bot.db import init_db, connect_db
+from bot.db import connect_db
 from bot.utils.export import export_to_excel
 
 
@@ -82,7 +82,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ▶️ Запуск бота
 if __name__ == "__main__":
     nest_asyncio.apply()
-    asyncio.run(init_db())  # создаём таблицы
 
     async def main():
         app = ApplicationBuilder().token(BOT_TOKEN).build()
