@@ -1,3 +1,4 @@
+
 import pandas as pd
 import io
 from datetime import datetime
@@ -5,7 +6,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.db import connect_db
-from bot.utils.portfolio import summarize_portfolio
+from bot.utils.parser import get_price_kase, get_price_from_yahoo
 
 async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -18,9 +19,30 @@ async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     df_portfolio = pd.DataFrame(portfolio, columns=["ticker", "category", "currency"])
     df_transactions = pd.DataFrame(transactions, columns=["id", "ticker", "qty", "price", "date"])
 
-    summary_text = await summarize_portfolio()
-    summary_lines = summary_text.split("\n")
-    df_summary = pd.DataFrame([line.strip("*") for line in summary_lines if line], columns=["Портфельная сводка"])
+    # Группировка транзакций
+    df_grouped = df_transactions.groupby("ticker").agg({"qty": "sum", "price": "mean"}).reset_index()
+    df_grouped.rename(columns={"qty": "Кол-во", "price": "Средняя цена"}, inplace=True)
+
+    tickers = df_grouped["ticker"].tolist()
+    latest_prices = []
+    for ticker in tickers:
+        price = await get_price_kase(ticker)
+        if price is None:
+            price = get_price_from_yahoo(ticker)
+        latest_prices.append(round(price or 0, 2))
+
+    df_grouped["Цена"] = latest_prices
+    df_grouped["Общая"] = (df_grouped["Кол-во"] * df_grouped["Цена"]).round(2)
+    df_grouped["Инвестировано"] = (df_grouped["Кол-во"] * df_grouped["Средняя цена"]).round(2)
+    df_grouped["Δ₸"] = (df_grouped["Общая"] - df_grouped["Инвестировано"]).round(2)
+    df_grouped["Δ%"] = ((df_grouped["Δ₸"] / df_grouped["Инвестировано"]) * 100).round(2)
+
+    total_value = df_grouped["Общая"].sum()
+    df_grouped["% от портфеля"] = ((df_grouped["Общая"] / total_value) * 100).round(2)
+
+    df_summary = df_grouped[
+        ["ticker", "Кол-во", "Цена", "Общая", "% от портфеля", "Δ%", "Δ₸"]
+    ].rename(columns={"ticker": "Ticker"})
 
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
