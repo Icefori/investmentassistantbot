@@ -3,11 +3,11 @@ from datetime import datetime, date
 from collections import defaultdict
 from math import isclose
 from bot.db import connect_db
-from pathlib import Path
+from bot.scheduler.currency import fetch_exchange_rates
 
 async def xirr(cash_flows: list[tuple[datetime, float]]) -> float | None:
     if not cash_flows:
-        return None  # 🔐 защита от пустого списка
+        return None
 
     d0 = min(d for d, _ in cash_flows)
 
@@ -38,43 +38,45 @@ async def summarize_portfolio():
 
     today = date.today()
     full_cash_flows = []
-    full_market_value = 0
-    category_totals = defaultdict(lambda: defaultdict(float))
-    category_cashflows = defaultdict(list)
+    full_market_value_tg = 0
+    full_market_value_usd = 0
+    category_totals_tg = defaultdict(float)
+    category_totals_usd = defaultdict(float)
     ticker_data = {}
+    category_cashflows = defaultdict(list)
     tickers_by_category = defaultdict(list)
+    missing_currencies = set()
 
-    prices_path = Path("data/prices.json")
-    if not prices_path.exists():
-        return "❗ Нет данных о ценах. Нажмите '📊 Мой портфель' чтобы обновить."
-
-    import json
-    with prices_path.open("r", encoding="utf-8") as f:
-        prices = json.load(f)
+    exchange_rates = await fetch_exchange_rates()
+    get_rate = lambda cur: (exchange_rates.get(cur) or 1.0)
 
     transactions_by_ticker = defaultdict(list)
-    for row in transactions_rows:
-        transactions_by_ticker[row["ticker"]].append(dict(row))
+    for tx in transactions_rows:
+        transactions_by_ticker[tx["ticker"]].append(dict(tx))
+
+    from bot.utils.parser import get_price_kase, get_price_from_yahoo
 
     for row in portfolio_rows:
         ticker = row["ticker"]
         category = row["category"]
         currency = row["currency"]
-        transactions = transactions_by_ticker.get(ticker, [])
-
-        if not transactions:
+        txs = transactions_by_ticker.get(ticker, [])
+        if not txs:
             continue
+
+        # Проверка наличия курса валюты
+        if currency not in exchange_rates:
+            missing_currencies.add(currency)
 
         total_qty = 0
         total_cost = 0.0
         earliest_date = None
         ticker_flows = []
 
-        for tx in transactions:
+        for tx in txs:
             qty = tx["qty"]
             price = tx["price"]
-            dt_str = tx["date"]
-            dt = datetime.strptime(dt_str, "%d-%m-%Y").date()
+            dt = datetime.strptime(tx["date"], "%d-%m-%Y").date()
             total_qty += qty
             total_cost += qty * price
             if qty > 0:
@@ -86,14 +88,25 @@ async def summarize_portfolio():
             continue
 
         avg_price = total_cost / total_qty
-        current_price = prices.get(ticker)
+
+        if category == "KZ":
+            current_price = await get_price_kase(ticker)
+        else:
+            current_price = get_price_from_yahoo(ticker)
+
         if current_price is None:
             continue
 
         market_value = total_qty * current_price
         ticker_flows.append((today, market_value))
         full_cash_flows.extend(ticker_flows)
-        full_market_value += market_value
+
+        market_value_tg = market_value * get_rate(currency)
+        market_value_usd = market_value_tg / get_rate("USD")
+        full_market_value_tg += market_value_tg
+        full_market_value_usd += market_value_usd
+        category_totals_tg[category] += market_value_tg
+        category_totals_usd[category] += market_value_usd
         category_cashflows[category].extend(ticker_flows)
 
         ticker_data[ticker] = {
@@ -103,62 +116,69 @@ async def summarize_portfolio():
             "avg_price": avg_price,
             "current_price": current_price,
             "total": market_value,
+            "total_tg": market_value_tg,
+            "total_usd": market_value_usd,
             "earliest": earliest_date,
-            "cash_flows": ticker_flows
         }
 
-        category_totals[category][currency] += market_value
         tickers_by_category[category].append(ticker)
 
     lines = ["📊 *Мой портфель*\n"]
-    total_portfolio_value = sum(sum(v.values()) for v in category_totals.values())
+
+    # Сообщение о пропущенных валютах
+    if missing_currencies:
+        lines.append(
+            "⚠️ *Внимание!* Нет курса для валют: " +
+            ", ".join(f"`{cur}`" for cur in sorted(missing_currencies)) +
+            ". Суммы по этим активам могут быть некорректны."
+        )
 
     for category in sorted(tickers_by_category):
-        for currency, total_sum in category_totals[category].items():
-            category_percent = (total_sum / total_portfolio_value) * 100 if total_portfolio_value else 0
-            xirr_result = await xirr(category_cashflows[category]) if category_cashflows[category] else None
-            if xirr_result is not None:
-                inflow = sum(cf for d, cf in category_cashflows[category] if cf > 0)
-                outflow = -sum(cf for d, cf in category_cashflows[category] if cf < 0)
-                net_gain = inflow - outflow
-                gain_str = f"{net_gain:,.0f} ₸"
-                xirr_str = f"📈 {xirr_result * 100:+.2f}% | {gain_str}"
-            else:
-                xirr_str = "📉 н/д"
+        category_total_tg = category_totals_tg[category]
+        category_total_usd = category_totals_usd[category]
+        category_percent = (category_total_tg / full_market_value_tg) * 100 if full_market_value_tg else 0
 
-            lines.append(f"*📁 {category}* — {total_sum:,.2f} {currency} ({category_percent:.1f}%) | {xirr_str}")
+        xirr_result = await xirr(category_cashflows[category])
+        inflow = sum(cf for d, cf in category_cashflows[category] if cf > 0)
+        outflow = -sum(cf for d, cf in category_cashflows[category] if cf < 0)
+        net_gain = inflow - outflow
+        gain_str = f"{net_gain:,.0f} ₸"
+        gain_str_usd = f"{net_gain / get_rate('USD'):,.0f} $"
+        xirr_str = f"📈 {xirr_result * 100:+.2f}% | {gain_str} | {gain_str_usd}" if xirr_result else "📉 н/д"
 
-            sorted_tickers = sorted(
-                tickers_by_category[category],
-                key=lambda t: ticker_data[t]["total"],
-                reverse=True
-            )
+        lines.append(
+            f"*📁 {category}* — {category_total_tg:,.2f} ₸ | {category_total_usd:,.2f} $ "
+            f"({category_percent:.1f}%) | {xirr_str}"
+        )
 
-            for ticker in sorted_tickers:
-                t = ticker_data[ticker]
-                percent = (t["total"] / total_sum) * 100 if total_sum else 0
-                holding_days = (today - t["earliest"]).days if t["earliest"] else "?"
-                gain = t["current_price"] - t["avg_price"]
-                gain_sign = "📈" if gain >= 0 else "📉"
-                gain_amount = gain * t["qty"]
-                gain_percent = (gain / t["avg_price"]) * 100 if t["avg_price"] else 0
+        for ticker in sorted(tickers_by_category[category], key=lambda t: ticker_data[t]["total_tg"], reverse=True):
+            t = ticker_data[ticker]
+            percent = (t["total_tg"] / category_total_tg) * 100 if category_total_tg else 0
+            holding_days = (today - t["earliest"]).days if t["earliest"] else "?"
+            gain = t["current_price"] - t["avg_price"]
+            gain_sign = "📈" if gain >= 0 else "📉"
+            gain_amount = gain * t["qty"]
+            gain_percent = (gain / t["avg_price"]) * 100 if t["avg_price"] else 0
 
-                lines.append(f"`{ticker}` — {t['qty']} шт | {t['total']:,.2f} {t['currency']} ({percent:.1f}%)")
-                lines.append(f"{gain_sign} {gain_amount:,.0f} ({gain_percent:+.1f}%) за {holding_days} дн.")
-            lines.append("")
+            lines.append(f"`{ticker}` — {t['qty']} шт | {t['total']:,.2f} {t['currency']} ({percent:.1f}%)")
+            lines.append(f"{gain_sign} {gain_amount:,.0f} ({gain_percent:+.1f}%) за {holding_days} дн.")
+        lines.append("")
 
-        if not full_cash_flows:
-            lines.append("⚠️ *Недостаточно данных для расчета XIRR.*")
-            return "\n".join(lines)
-
-    xirr_result = await xirr(full_cash_flows)
-    if xirr_result is not None:
+    if full_cash_flows:
+        xirr_result = await xirr(full_cash_flows)
         inflow = sum(cf for d, cf in full_cash_flows if cf > 0)
         outflow = -sum(cf for d, cf in full_cash_flows if cf < 0)
         net_gain = inflow - outflow
         gain_str = f"{net_gain:,.0f} ₸"
-        lines.append(f"📈 *Итог XIRR по портфелю:* {xirr_result * 100:+.2f}% | {gain_str}")
+        gain_str_usd = f"{net_gain / get_rate('USD'):,.0f} $"
+        xirr_str = f"{xirr_result * 100:+.2f}%" if xirr_result else "н/д"
+        lines.append(
+            f"📈 *Итог XIRR по портфелю:* {xirr_str} | {gain_str} | {gain_str_usd}"
+        )
+        lines.append(
+            f"*Общая стоимость портфеля:* {full_market_value_tg:,.2f} ₸ | {full_market_value_usd:,.2f} $"
+        )
     else:
-        lines.append("⚠️ *XIRR не удалось рассчитать.*")
-    
+        lines.append("⚠️ *Недостаточно данных для расчета XIRR.*")
+
     return "\n".join(lines)
