@@ -3,7 +3,7 @@ from datetime import datetime, date
 from collections import defaultdict
 from math import isclose
 from bot.db import connect_db
-from bot.scheduler.currency import fetch_exchange_rates
+from bot.scheduler.currency import fetch_exchange_rates_full  # исправлено
 
 async def xirr(cash_flows: list[tuple[datetime, float]]) -> float | None:
     if not cash_flows:
@@ -47,7 +47,9 @@ async def summarize_portfolio():
     tickers_by_category = defaultdict(list)
     missing_currencies = set()
 
-    exchange_rates = await fetch_exchange_rates()
+    # Получаем все курсы сразу (на сегодня, неделю и месяц назад)
+    today_rates, _, _ = await fetch_exchange_rates_full()
+    exchange_rates = today_rates
     get_rate = lambda cur: (exchange_rates.get(cur) or 1.0)
 
     transactions_by_ticker = defaultdict(list)
