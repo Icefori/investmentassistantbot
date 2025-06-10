@@ -89,10 +89,13 @@ async def summarize_portfolio():
 
         avg_price = total_cost / total_qty
 
-        if category == "KZ":
+        # Логика: если KZT — только KASE, иначе сначала Yahoo (асинхронно!), если не найдено — KASE
+        if currency == "KZT":
             current_price = await get_price_kase(ticker)
         else:
-            current_price = get_price_from_yahoo(ticker)
+            current_price = await get_price_from_yahoo(ticker)
+            if current_price is None:
+                current_price = await get_price_kase(ticker)
 
         if current_price is None:
             continue

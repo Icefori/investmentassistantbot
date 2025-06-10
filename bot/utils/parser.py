@@ -2,11 +2,10 @@ import json
 import aiohttp
 from datetime import datetime
 import yfinance as yf
+import asyncio
 from bot.db import connect_db
 
-PRICES_PATH = "data/prices.json"
-
-# Получение цены с сайта KASE (асинхронно)
+# Get price from KASE (async)
 async def get_price_kase(ticker: str) -> float | None:
     try:
         now = int(datetime.now().timestamp())
@@ -27,66 +26,28 @@ async def get_price_kase(ticker: str) -> float | None:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=10) as response:
                 text = await response.text()
-
-                try:
-                    data = json.loads(text)
-                except json.JSONDecodeError:
-                    print(f"⚠️ Невозможно распарсить JSON для {ticker}: {text[:100]}")
-                    return None
-
+                data = json.loads(text)
                 closes = data.get("c", [])
                 if not closes:
-                    print(f"⚠️ Нет данных 'c' для {ticker}")
+                    print(f"⚠️ No price data for {ticker}")
                     return None
-
                 return float(closes[-1])
 
     except Exception as ex:
-        print(f"❌ Ошибка при получении цены с KASE для {ticker}: {ex}")
+        print(f"❌ Error fetching KASE price for {ticker}: {ex}")
         return None
 
-
-
-
-# Получение цены с Yahoo (синхронно)
-def get_price_from_yahoo(ticker):
-    try:
-        data = yf.Ticker(ticker)
-        hist = data.history(period="1d")
-        if hist.empty:
-            return None
-        return float(hist["Close"].iloc[-1])
-    except Exception as ex:
-        print(f"❌ Ошибка при получении цены с Yahoo для {ticker}: {ex}")
-        return None
-
-
-# Обновление prices.json на основе данных из PostgreSQL
-async def update_prices_json_from_portfolio():
-    conn = await connect_db()
-    records = await conn.fetch("SELECT ticker, category FROM portfolio")
-    prices = {}
-
-    for record in records:
-        ticker = record["ticker"]
-        category = record["category"]
-        price = None
-
+# Get price from Yahoo (async via executor)
+async def get_price_from_yahoo(ticker: str) -> float | None:
+    loop = asyncio.get_running_loop()
+    def fetch():
         try:
-            if category == "KZ":
-                price = await get_price_kase(ticker)
-            else:
-                price = get_price_from_yahoo(ticker)
+            data = yf.Ticker(ticker)
+            hist = data.history(period="1d")
+            if hist.empty:
+                return None
+            return float(hist["Close"].iloc[-1])
         except Exception as ex:
-            print(f"❌ Ошибка при получении цены для {ticker}: {ex}")
-            price = None
-
-        if price:
-            prices[ticker] = round(price, 2)
-        else:
-            print(f"❌ Цена для {ticker} не найдена!")
-
-    await conn.close()
-
-    with open(PRICES_PATH, "w", encoding="utf-8") as f:
-        json.dump(prices, f, indent=2, ensure_ascii=False)
+            print(f"❌ Error fetching Yahoo price for {ticker}: {ex}")
+            return None
+    return await loop.run_in_executor(None, fetch)

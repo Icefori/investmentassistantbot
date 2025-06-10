@@ -1,4 +1,3 @@
-
 import pandas as pd
 import io
 from datetime import datetime
@@ -28,7 +27,7 @@ async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     for ticker in tickers:
         price = await get_price_kase(ticker)
         if price is None:
-            price = get_price_from_yahoo(ticker)
+            price = await get_price_from_yahoo(ticker)  # исправлено: добавлен await
         latest_prices.append(round(price or 0, 2))
 
     df_grouped["Цена"] = latest_prices

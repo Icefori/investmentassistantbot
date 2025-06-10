@@ -1,41 +1,82 @@
 import aiohttp
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 
 TARGET_CURRENCIES = {"USD", "EUR", "RUB", "GBP", "CNY"}
-CURRENCY_RSS_URL = "https://nationalbank.kz/rss/rates_all.xml"
+CURRENCY_RSS_DATE_URL = "https://nationalbank.kz/rss/get_rates.cfm?fdate={date}"
 
-async def fetch_exchange_rates():
+async def fetch_rates_by_date(date: datetime):
+    url = CURRENCY_RSS_DATE_URL.format(date=date.strftime("%d.%m.%Y"))
     async with aiohttp.ClientSession() as session:
-        async with session.get(CURRENCY_RSS_URL) as response:
+        async with session.get(url) as response:
             if response.status != 200:
                 raise Exception(f"⚠️ Не удалось получить данные с сайта НБРК: {response.status}")
             xml_data = await response.text()
-
     root = ET.fromstring(xml_data)
-    rates = []
-
+    rates = {}
+    changes = {}
     for item in root.findall("channel/item"):
         currency = item.find("title").text
         if currency not in TARGET_CURRENCIES:
             continue
+        rate = float(item.find("description").text)
+        change = float(item.find("change").text)
+        rates[currency] = rate
+        changes[currency] = change
+    return rates, changes
 
-        rate_info = {
-            "currency": currency,
-            "date": item.find("pubDate").text,
-            "rate": float(item.find("description").text),
-            "change": float(item.find("change").text),
-            "index": item.find("index").text,
-        }
-        rates.append(rate_info)
+async def fetch_exchange_rates_full():
+    today = datetime.now()
+    week_ago = today - timedelta(days=7)
+    month_ago = today - timedelta(days=30)
 
-    return rates
+    today_rates, today_changes = await fetch_rates_by_date(today)
+    week_rates, _ = await fetch_rates_by_date(week_ago)
+    month_rates, _ = await fetch_rates_by_date(month_ago)
 
-def format_currency_message(rates):
+    return today_rates, today_changes, week_rates, month_rates
+
+def format_currency_message_structured(today_rates, today_changes, week_rates, month_rates):
     today = datetime.now().strftime("%d.%m.%Y")
-    message = f"💱 Курс валют на {today} (НБ РК):\n\n"
-    for r in rates:
-        arrow = "🔻" if r["index"] == "DOWN" else "🔺"
-        message += f"*{r['currency']}*: {r['rate']} ₸ {arrow} ({r['change']} тг)\n"
-    return message
+    header = (
+        f"💱 Курс валют на {today} (НБ РК)\n"
+        f"{'Валюта':<6} {'Текущий':>10} {'День':>10} {'7д':>10} {'30д':>10}\n"
+        f"{'':<6} {'курс':>10} {'%':>10} {'%':>10} {'%':>10}\n"
+        f"{'-'*50}"
+    )
+    lines = [header]
+    for cur in sorted(TARGET_CURRENCIES):
+        cur_rate = today_rates.get(cur)
+        day_change = today_changes.get(cur)
+        week_rate = week_rates.get(cur)
+        month_rate = month_rates.get(cur)
+        if not cur_rate or week_rate is None or month_rate is None or day_change is None:
+            continue
+
+        # Изменение за день в процентах (по формуле: change / (rate - change) * 100)
+        prev_day_rate = cur_rate - day_change if cur_rate - day_change != 0 else 1
+        day_delta = (day_change / prev_day_rate) * 100
+
+        week_delta = ((cur_rate - week_rate) / week_rate * 100) if week_rate else 0
+        month_delta = ((cur_rate - month_rate) / month_rate * 100) if month_rate else 0
+
+        def arrow(val):
+            if val > 0.05:
+                return "🔺"
+            elif val < -0.05:
+                return "🔻"
+            else:
+                return "⏺"
+
+        lines.append(
+            f"{cur:<6} {cur_rate:>10.2f} "
+            f"{arrow(day_delta)}{day_delta:>8.2f}% "
+            f"{arrow(week_delta)}{week_delta:>8.2f}% "
+            f"{arrow(month_delta)}{month_delta:>8.2f}%"
+        )
+    return "\n".join(lines)
+
+# Пример асинхронного использования:
+# today_rates, today_changes, week_rates, month_rates = await fetch_exchange_rates_full()
+# message = format_currency_message_structured(today_rates, today_changes, week_rates, month_rates)
 
