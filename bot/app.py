@@ -11,7 +11,6 @@ from telegram.ext import (
 from handlers.deal import handle_deal, choose_category
 from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
-from utils.parser import update_prices_json_from_portfolio
 from bot.db import connect_db
 from bot.utils.export import export_to_excel
 
@@ -55,7 +54,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("input_mode", None)
 
         if text == "📊 Мой портфель":
-            await update_prices_json_from_portfolio()
+        
             summary = await summarize_portfolio()
             await update.message.reply_text(summary, parse_mode="Markdown")
         else:
