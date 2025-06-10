@@ -2,6 +2,7 @@ import asyncio
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
+from dotenv import load_dotenv
 
 # ⛳️ Импорт из подкаталога
 from bot.scheduler.currency import fetch_exchange_rates, format_currency_message
@@ -14,11 +15,15 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("OWNER_CHAT_ID")
 
+bot = Bot(token=BOT_TOKEN)
+
+print(f"BOT_TOKEN из env: {BOT_TOKEN}")
+
 async def send_daily_currency_update():
     try:
         rates = await fetch_exchange_rates()
         message = format_currency_message(rates)
-        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="HTML")
+        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
         print("✅ Курсы валют отправлены")
     except Exception as e:
         print(f"⚠️ Ошибка при отправке курсов валют: {e}")
@@ -26,7 +31,7 @@ async def send_daily_currency_update():
 def start_scheduler():
     tz = pytz.timezone("Europe/Amsterdam")
     scheduler = AsyncIOScheduler(timezone=tz)
-    scheduler.add_job(send_daily_currency_update, trigger="date", hour=8, minute=0)
+    scheduler.add_job(send_daily_currency_update, trigger="cron", hour=8, minute=0)
     scheduler.start()
     print("🕗 Планировщик запущен")
 
