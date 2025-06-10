@@ -38,3 +38,4 @@ def format_currency_message(rates):
         arrow = "🔻" if r["index"] == "DOWN" else "🔺"
         message += f"*{r['currency']}*: {r['rate']} ₸ {arrow} ({r['change']} тг)\n"
     return message
+

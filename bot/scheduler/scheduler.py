@@ -3,8 +3,8 @@ import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram import Bot
 
-# ✅ Относительный импорт
-from scheduler.currency import fetch_exchange_rates, format_currency_message
+# ⛳️ Импорт из подкаталога
+from bot.scheduler.currency import fetch_exchange_rates, format_currency_message
 
 import os
 from dotenv import load_dotenv
@@ -13,8 +13,6 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("OWNER_CHAT_ID")
-
-bot = Bot(token=BOT_TOKEN)
 
 async def send_daily_currency_update():
     try:
@@ -28,7 +26,7 @@ async def send_daily_currency_update():
 def start_scheduler():
     tz = pytz.timezone("Europe/Amsterdam")
     scheduler = AsyncIOScheduler(timezone=tz)
-    scheduler.add_job(send_daily_currency_update, trigger="cron", hour=8, minute=0)
+    scheduler.add_job(send_daily_currency_update, trigger="date", hour=8, minute=0)
     scheduler.start()
     print("🕗 Планировщик запущен")
 
