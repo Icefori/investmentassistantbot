@@ -77,3 +77,14 @@ if __name__ == "__main__":
     asyncio.run(send_daily_currency_update())  # Один раз сразу
     start_scheduler()
     asyncio.get_event_loop().run_forever()
+
+if __name__ == "__main__":
+        import sys
+    
+        async def manual_test():
+            if len(sys.argv) > 1 and sys.argv[1] == "market":
+                await send_market_open_notifications()
+            else:
+                await send_daily_currency_update()
+    
+        asyncio.run(manual_test())

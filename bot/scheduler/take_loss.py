@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 from bot.db import connect_db
 from bot.utils.parser import get_price_kase, get_price_from_yahoo
-from bot.scheduler.currency import fetch_exchange_rates
+from bot.scheduler.currency import fetch_exchange_rates_full  # исправлено
 
 ALERT_THRESHOLD = -0.10  # <= -10%
 
@@ -17,8 +17,8 @@ async def check_take_loss_alerts(send_alert_func):
         ticker = tx["ticker"]
         transactions_by_ticker.setdefault(ticker, []).append(dict(tx))
 
-    exchange_rates = await fetch_exchange_rates()
-    get_rate = lambda cur: (exchange_rates.get(cur) or 1.0)
+    today_rates, *_ = await fetch_exchange_rates_full()
+    get_rate = lambda cur: (today_rates.get(cur) or 1.0)
 
     for ticker, txs in transactions_by_ticker.items():
         # Сортируем по дате
