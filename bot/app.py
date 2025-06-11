@@ -3,6 +3,7 @@ import nest_asyncio
 import asyncio
 
 from telegram import Update, ReplyKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler,
     CommandHandler, CallbackQueryHandler, filters
@@ -13,6 +14,7 @@ from utils.portfolio import summarize_portfolio
 from utils.formatter import send_markdown
 from bot.db import connect_db
 from bot.utils.export import export_to_excel
+from bot.utils.taxes import export_taxes_excel
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -22,7 +24,7 @@ if not BOT_TOKEN:
 menu_keyboard = [
     ["📊 Мой портфель", "➕ Сделка"],
     ["💰 Дивиденды", "📰 Новости"],
-    ["📤 Экспорт"]
+    ["📤 Экспорт", "🧾 Расчет налогов"]  # добавили кнопку
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
@@ -72,6 +74,31 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     elif text == "📤 Экспорт":
         await export_to_excel(update, context)
+    elif text == "🧾 Расчет налогов":
+        context.user_data["input_mode"] = "taxes"
+        await update.message.reply_text(
+            "Пожалуйста, введите год для расчета налогов в формате YYYY (например, 2024):"
+        )
+        return
+
+    # Обработка ввода года для налогов
+    if context.user_data.get("input_mode") == "taxes":
+        year_str = text.strip()
+        if not (year_str.isdigit() and len(year_str) == 4):
+            await update.message.reply_text("Введите год в формате YYYY, например: 2024")
+            return
+        year = int(year_str)
+        await update.message.reply_text("⏳ Формируем налоговый отчет, это может занять до минуты...")
+        await update.message.chat.send_action(action=ChatAction.UPLOAD_DOCUMENT)
+        filename = await export_taxes_excel(year)
+        with open(filename, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename=filename,
+                caption=f"Ваш налоговый отчет за {year} год"
+            )
+        context.user_data.pop("input_mode", None)
+        return
 
     if context.user_data.get("input_mode") == "deals":
         await handle_deal(update, context)

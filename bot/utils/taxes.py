@@ -18,9 +18,8 @@ async def get_isin_country(ticker: str, exchange: str) -> str:
 async def fetch_transactions_for_year(year: int):
     print(f"[LOG] Загружаем транзакции за {year}")
     conn = await connect_db()
-    start = f"{year}-01-01"
-    end = f"{year}-12-31"
-    # Преобразуем строку даты из dd-mm-yyyy в date для фильтрации
+    start = datetime(year, 1, 1).date()
+    end = datetime(year, 12, 31).date()
     rows = await conn.fetch(
         "SELECT id, ticker, qty, price, date, exchange FROM transactions "
         "WHERE to_date(date, 'DD-MM-YYYY') >= $1 AND to_date(date, 'DD-MM-YYYY') <= $2 "
