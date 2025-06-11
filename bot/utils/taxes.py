@@ -36,13 +36,17 @@ def format_date(date_str):
 
 def fifo_match(transactions):
     print(f"[LOG] Запускаем FIFO разбор")
-    buys = []
+    buys_by_ticker = {}
     results = []
     for tx in transactions:
+        ticker = tx['ticker']
+        if ticker not in buys_by_ticker:
+            buys_by_ticker[ticker] = []
         if tx['qty'] > 0:
-            buys.append(tx.copy())
+            buys_by_ticker[ticker].append(tx.copy())
         elif tx['qty'] < 0:
             qty_to_sell = -tx['qty']
+            buys = buys_by_ticker[ticker]
             while qty_to_sell > 0 and buys:
                 buy = buys[0]
                 match_qty = min(buy['qty'], qty_to_sell)
