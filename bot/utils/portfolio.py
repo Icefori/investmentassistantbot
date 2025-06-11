@@ -49,7 +49,11 @@ async def summarize_portfolio():
 
     # Получаем только курсы за сегодня
     today_rates, _ = await fetch_rates_by_date(datetime.now())
-    exchange_rates = today_rates
+    # Добавляем базовые валюты
+    exchange_rates = dict(today_rates)
+    exchange_rates["KZT"] = 1.0
+    exchange_rates["USD"] = exchange_rates.get("USD", 1.0)  # если USD есть, иначе 1.0
+
     get_rate = lambda cur: (exchange_rates.get(cur) or 1.0)
 
     transactions_by_ticker = defaultdict(list)
@@ -131,10 +135,11 @@ async def summarize_portfolio():
     lines = ["📊 *Мой портфель*\n"]
 
     # Сообщение о пропущенных валютах
-    if missing_currencies:
+    filtered_missing = {cur for cur in missing_currencies if cur not in ("KZT", "USD")}
+    if filtered_missing:
         lines.append(
             "⚠️ *Внимание!* Нет курса для валют: " +
-            ", ".join(f"`{cur}`" for cur in sorted(missing_currencies)) +
+            ", ".join(f"`{cur}`" for cur in sorted(filtered_missing)) +
             ". Суммы по этим активам могут быть некорректны."
         )
 
