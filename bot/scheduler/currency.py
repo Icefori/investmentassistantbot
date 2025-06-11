@@ -23,6 +23,7 @@ async def fetch_rates_by_date(date: datetime):
         change = float(item.find("change").text)
         rates[currency] = rate
         changes[currency] = change
+    print(f"[DEBUG] {date.strftime('%d.%m.%Y')} rates: {rates}")  # Для отладки
     return rates, changes
 
 async def fetch_exchange_rates_full():
@@ -45,6 +46,7 @@ def format_currency_message_structured(today_rates, today_changes, week_rates, m
         f"{'-'*50}"
     )
     lines = [header]
+    found = False
     for cur in sorted(TARGET_CURRENCIES):
         cur_rate = today_rates.get(cur)
         day_change = today_changes.get(cur)
@@ -53,6 +55,7 @@ def format_currency_message_structured(today_rates, today_changes, week_rates, m
         if not cur_rate or week_rate is None or month_rate is None or day_change is None:
             continue
 
+        found = True
         # Изменение за день в процентах (по формуле: change / (rate - change) * 100)
         prev_day_rate = cur_rate - day_change if cur_rate - day_change != 0 else 1
         day_delta = (day_change / prev_day_rate) * 100
@@ -74,6 +77,8 @@ def format_currency_message_structured(today_rates, today_changes, week_rates, m
             f"{arrow(week_delta)}{week_delta:>8.2f}% "
             f"{arrow(month_delta)}{month_delta:>8.2f}%"
         )
+    if not found:
+        lines.append("Нет данных по курсам валют.")
     return "\n".join(lines)
 
 # Пример асинхронного использования:

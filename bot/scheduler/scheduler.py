@@ -5,21 +5,15 @@ from telegram import Bot
 from dotenv import load_dotenv
 from bot.scheduler.market_open import get_market_messages
 from datetime import datetime
-
-# ⛳️ Импорт из подкаталога
 from bot.scheduler.currency import fetch_exchange_rates_full, format_currency_message_structured
 from bot.scheduler.take_profit import check_take_profit_alerts
-
 import os
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("OWNER_CHAT_ID")
-
 bot = Bot(token=BOT_TOKEN)
-
-print(f"BOT_TOKEN из env: {BOT_TOKEN}")
 
 async def send_daily_currency_update():
     try:
@@ -43,9 +37,9 @@ async def send_market_open_notifications():
     for msg in messages:
         await bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown")
 
-def start_scheduler():
+def start_scheduler(loop):
     tz = pytz.timezone("Europe/Amsterdam")
-    scheduler = AsyncIOScheduler(timezone=tz)
+    scheduler = AsyncIOScheduler(timezone=tz, event_loop=loop)
     # Курсы валют — каждый день в 8:00, кроме выходных
     scheduler.add_job(
         lambda: asyncio.create_task(send_daily_currency_update()),
@@ -73,18 +67,16 @@ def start_scheduler():
     scheduler.start()
     print("🕗 Планировщик запущен")
 
-if __name__ == "__main__":
-    asyncio.run(send_daily_currency_update())  # Один раз сразу
-    start_scheduler()
-    asyncio.get_event_loop().run_forever()
+async def main():
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "market":
+        await send_market_open_notifications()
+    else:
+        await send_daily_currency_update()
+    # Запуск планировщика
+    loop = asyncio.get_running_loop()
+    start_scheduler(loop)
+    await asyncio.Event().wait()  # Бесконечно держим event loop
 
 if __name__ == "__main__":
-        import sys
-    
-        async def manual_test():
-            if len(sys.argv) > 1 and sys.argv[1] == "market":
-                await send_market_open_notifications()
-            else:
-                await send_daily_currency_update()
-    
-        asyncio.run(manual_test())
+    asyncio.run(main())
