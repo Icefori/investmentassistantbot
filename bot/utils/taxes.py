@@ -20,8 +20,11 @@ async def fetch_transactions_for_year(year: int):
     conn = await connect_db()
     start = f"{year}-01-01"
     end = f"{year}-12-31"
+    # Преобразуем строку даты из dd-mm-yyyy в date для фильтрации
     rows = await conn.fetch(
-        "SELECT id, ticker, qty, price, date, exchange FROM transactions WHERE date >= $1 AND date <= $2 ORDER BY date, id",
+        "SELECT id, ticker, qty, price, date, exchange FROM transactions "
+        "WHERE to_date(date, 'DD-MM-YYYY') >= $1 AND to_date(date, 'DD-MM-YYYY') <= $2 "
+        "ORDER BY to_date(date, 'DD-MM-YYYY'), id",
         start, end
     )
     await conn.close()
@@ -29,20 +32,8 @@ async def fetch_transactions_for_year(year: int):
     return [dict(r) for r in rows]
 
 def format_date(date_str):
-    # Если уже dd-mm-yyyy, возвращаем как есть, иначе преобразуем
-    try:
-        if "-" in date_str:
-            parts = date_str.split("-")
-            if len(parts[0]) == 2 and len(parts[1]) == 2 and len(parts[2]) == 4:
-                return date_str
-            # иначе преобразуем из yyyy-mm-dd
-            dt = datetime.strptime(date_str, "%Y-%m-%d")
-            return dt.strftime("%d-%m-%Y")
-        else:
-            return date_str
-    except Exception as e:
-        print(f"[WARN] Не удалось преобразовать дату: {date_str} ({e})")
-        return date_str
+    # Всегда возвращаем dd-mm-yyyy (в базе уже такой формат)
+    return date_str
 
 def fifo_match(transactions):
     print(f"[LOG] Запускаем FIFO разбор")
