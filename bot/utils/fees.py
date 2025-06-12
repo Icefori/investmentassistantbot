@@ -18,7 +18,7 @@ def calc_fees(exchange: str, qty: int, price: float, is_sell: bool = False) -> d
         # Покупка
         if not is_sell:
             cp_fee = max(0.01 * qty, 7.5)  # 0.01$ за бумагу, минимум 7.5$
-            br_fee = 0.0
+            br_fee = round(0.001 * qty * price, 6)  # 0.1% от суммы сделки
             ex_fee = 0.0
         else:
             # Продажа
