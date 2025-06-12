@@ -24,7 +24,7 @@ if not BOT_TOKEN:
 menu_keyboard = [
     ["📊 Мой портфель", "➕ Сделка"],
     ["💰 Дивиденды", "📰 Новости"],
-    ["📤 Экспорт", "🧾 Расчет налогов"]  # добавили кнопку
+    ["📤 Экспорт", "🧾 Расчет налогов"]
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
@@ -56,7 +56,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("input_mode", None)
 
         if text == "📊 Мой портфель":
-        
             summary = await summarize_portfolio()
             await update.message.reply_text(summary, parse_mode="Markdown")
         else:
@@ -102,21 +101,16 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("input_mode") == "deals":
         await handle_deal(update, context)
-    
 
 
-# ▶️ Запуск бота
-if __name__ == "__main__":
+# ▶️ Функция для запуска бота (используется в main.py)
+async def run_bot():
     nest_asyncio.apply()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("all_deals", show_all_deals))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    app.add_handler(CallbackQueryHandler(choose_category))  # опционально
 
-    async def main():
-        app = ApplicationBuilder().token(BOT_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("all_deals", show_all_deals))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-        app.add_handler(CallbackQueryHandler(choose_category))  # опционально, если включишь кнопки
-
-        print("✅ Бот запускается через polling...")
-        await app.run_polling()
-
-    asyncio.run(main())
+    print("✅ Бот запускается через polling...")
+    await app.run_polling()

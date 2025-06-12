@@ -104,11 +104,12 @@ def start_scheduler(loop):
     scheduler.start()
     print("🕗 Планировщик запущен")
 
-async def main():
+# ▶️ Функция для запуска планировщика (используется в main.py)
+async def run_scheduler():
     loop = asyncio.get_running_loop()
     start_scheduler(loop)
 
-    # Ручной запуск по аргументу
+    # Ручной запуск по аргументу (опционально)
     if len(sys.argv) > 1:
         arg = sys.argv[1]
         if arg == "currency":
@@ -119,6 +120,3 @@ async def main():
             await send_daily_currency_update()
             await send_market_open_notifications()
     await asyncio.Event().wait()  # Держим event loop
-
-if __name__ == "__main__":
-    asyncio.run(main())
