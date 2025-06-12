@@ -158,18 +158,17 @@ async def summarize_portfolio():
         category_total_usd = category_totals_usd[category]
         category_percent = (category_total_kzt / full_market_value_kzt) * 100 if full_market_value_kzt else 0
 
+        # XIRR и прирост по категории
         xirr_result = await xirr(category_cashflows[category])
         inflow = sum(cf for d, cf in category_cashflows[category] if cf > 0)
         outflow = -sum(cf for d, cf in category_cashflows[category] if cf < 0)
         net_gain = inflow - outflow
-        gain_str = f"{net_gain:,.0f} ₸"
-        gain_str_usd = f"{net_gain / get_rate('USD'):,.0f} $"
-        xirr_str = f"📈 {xirr_result * 100:+.2f}% | {gain_str} | {gain_str_usd}" if xirr_result else "📉 н/д"
+        gain_percent = (net_gain / outflow * 100) if outflow else 0
 
-        lines.append(
-            f"*📁 {category}* — {category_total_kzt:,.2f} ₸ | {category_total_usd:,.2f} $ "
-            f"({category_percent:.1f}%) | {xirr_str}"
-        )
+        # Формат вывода по категории
+        lines.append(f"📁 {category} - {category_percent:.1f}%")
+        lines.append(f"{category_total_kzt:,.2f} ₸ | {category_total_usd:,.2f} $ | " +
+                     (f"📈 {xirr_result * 100:+.2f}%" if xirr_result else f"📉 {gain_percent:+.2f}%"))
 
         for ticker in sorted(tickers_by_category[category], key=lambda t: ticker_data[t]["total_kzt"], reverse=True):
             t = ticker_data[ticker]
@@ -178,23 +177,21 @@ async def summarize_portfolio():
             gain = t["current_price"] - t["avg_price"]
             gain_sign = "📈" if gain >= 0 else "📉"
             gain_amount = gain * t["qty"]
-            gain_percent = (gain / t["avg_price"]) * 100 if t["avg_price"] else 0
+            gain_percent_ticker = (gain / t["avg_price"]) * 100 if t["avg_price"] else 0
 
             # Красивое выравнивание по валютам
-            if t["currency"] == "KZT":
-                value_str = f"{t['total_kzt']:,.2f} ₸ | {t['total_usd']:,.2f} $"
-            elif t["currency"] == "USD":
-                value_str = f"{t['total_kzt']:,.2f} ₸ | {t['total_usd']:,.2f} $"
-            else:
-                value_str = f"{t['total_kzt']:,.2f} ₸ | {t['total_usd']:,.2f} $"
+            value_str = f"{t['total_kzt']:,.2f} ₸ | {t['total_usd']:,.2f} $"
 
             lines.append(
-                f"`{ticker}` — {t['qty']} шт | {value_str} ({percent:.1f}%)"
+                f"`{ticker}` — {percent:.1f}%"
             )
             lines.append(
-                f"{gain_sign} {gain_amount:,.0f} ({gain_percent:+.1f}%) за {holding_days} дн."
+                f"{t['qty']} шт | {value_str}"
             )
-        lines.append("")
+            lines.append(
+                f"{gain_sign} {gain_amount:,.0f} ({gain_percent_ticker:+.1f}%) за {holding_days} дн."
+            )
+            lines.append("")  # пустая строка между активами
 
     if full_cash_flows:
         xirr_result = await xirr(full_cash_flows)

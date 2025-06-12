@@ -10,12 +10,11 @@ from telegram.ext import (
 )
 
 from bot.handlers.deal import handle_deal, choose_category
-from bot.utils.portfolio import summarize_portfolio
+from bot.handlers.portfolio import summarize_portfolio
 from bot.utils.formatter import send_markdown
 from bot.db import connect_db
 from bot.utils.export import export_to_excel
-from bot.utils.taxes import export_taxes_excel
-
+from bot.handlers.taxes import export_taxes_excel
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -36,7 +35,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_all_deals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = await connect_db()
     rows = await conn.fetch("SELECT * FROM transactions ORDER BY date DESC")
-    await conn.close()
+    await conn.close()  
 
     if not rows:
         await update.message.reply_text("📭 Сделок пока нет.")
