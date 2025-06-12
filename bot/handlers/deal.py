@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
@@ -6,6 +7,7 @@ from bot.utils.fees import calc_fees
 
 CURRENCY_CODES = {"KZT", "USD", "EUR", "RUB", "GBP", "CHF", "JPY", "CNY"}
 EXCHANGES = ["KASE", "AIX", "NASDAQ", "AMEX", "LSE", "Другая"]
+OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID")
 
 async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -154,7 +156,7 @@ async def handle_custom_exchange(update: Update, context: ContextTypes.DEFAULT_T
 async def finalize_deal(update_or_query, context):
     pending = context.user_data.pop("pending_deal", None)
     if not pending:
-        await _send_deal_message(update_or_query, "⚠️ Нет ожидающей сделки.")
+        await _send_deal_message(update_or_query, "⚠️ Нет ожидающей сделки.", context)
         return
 
     ticker = pending.get("ticker")
@@ -167,7 +169,7 @@ async def finalize_deal(update_or_query, context):
 
     # Проверяем, что все обязательные поля заполнены
     if not all([ticker, qty is not None, price is not None, date, currency, exchange, category]):
-        await _send_deal_message(update_or_query, "⚠️ Не все параметры сделки заполнены. Проверьте ввод.")
+        await _send_deal_message(update_or_query, "⚠️ Не все параметры сделки заполнены. Проверьте ввод.", context)
         return
 
     is_sell = qty < 0
@@ -191,12 +193,12 @@ async def finalize_deal(update_or_query, context):
         )
         await conn.close()
     except Exception as e:
-        await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {e}")
+        await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {e}", context)
         return
 
     # Проверяем, что запись действительно добавлена (result должен содержать INSERT ...)
     if not (result and "INSERT" in result):
-        await _send_deal_message(update_or_query, "❌ Сделка не была записана в базу данных.")
+        await _send_deal_message(update_or_query, "❌ Сделка не была записана в базу данных.", context)
         return
 
     sign = "➕ Покупка" if qty > 0 else "➖ Продажа"
@@ -210,18 +212,26 @@ async def finalize_deal(update_or_query, context):
         f"Цена с учетом комиссий: {end_pr}\n"
         f"📅 Дата: {date}"
     )
-    await _send_deal_message(update_or_query, response)
+    await _send_deal_message(update_or_query, response, context)
 
-async def _send_deal_message(update_or_query, text):
+async def _send_deal_message(update_or_query, text, context=None):
     # Универсальная отправка сообщения пользователю
+    user_id = None
     if hasattr(update_or_query, "from_user"):
         user_id = update_or_query.from_user.id
     elif hasattr(update_or_query, "message") and hasattr(update_or_query.message, "chat_id"):
         user_id = update_or_query.message.chat_id
-    else:
-        user_id = None
+    elif hasattr(update_or_query, "effective_user"):
+        user_id = update_or_query.effective_user.id
 
-    context = update_or_query.application if hasattr(update_or_query, "application") else None
+    # fallback на OWNER_CHAT_ID из env
+    if not user_id and OWNER_CHAT_ID:
+        user_id = int(OWNER_CHAT_ID)
+
+    # context должен быть передан явно!
+    if not context and hasattr(update_or_query, "application"):
+        context = update_or_query.application
+
     if user_id and context:
         await context.bot.send_message(
             chat_id=user_id,
@@ -232,5 +242,5 @@ async def _send_deal_message(update_or_query, text):
         # fallback на старое поведение
         if hasattr(update_or_query, "edit_message_text"):
             await update_or_query.edit_message_text(text, parse_mode="Markdown")
-        else:
+        elif hasattr(update_or_query, "message"):
             await update_or_query.message.reply_text(text, parse_mode="Markdown")
