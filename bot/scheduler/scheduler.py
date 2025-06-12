@@ -50,7 +50,6 @@ def schedule_market_notifications(scheduler):
     tz_ams = pytz.timezone("Europe/Amsterdam")
     now = datetime.now(tz_ams)
     today = now.date()
-
     for market in MARKETS:
         market_tz = pytz.timezone(market["tz"])
         # Время открытия
@@ -120,4 +119,3 @@ async def run_scheduler():
             await send_daily_currency_update()
             await send_market_open_notifications()
     await asyncio.Event().wait()  # Держим event loop
-    
