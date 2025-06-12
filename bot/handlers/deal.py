@@ -1,4 +1,5 @@
 import os
+import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
@@ -178,6 +179,7 @@ async def finalize_deal(update_or_query, context):
 
     # Проверяем, что все обязательные поля заполнены
     if not all([ticker, qty is not None, price is not None, date, currency, exchange, category]):
+        logging.warning(f"[DEAL] Не все параметры заполнены: {pending}")
         await _send_deal_message(update_or_query, "⚠️ Не все параметры сделки заполнены. Проверьте ввод.", context)
         return
 
@@ -201,12 +203,15 @@ async def finalize_deal(update_or_query, context):
             ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum_value, end_pr
         )
         await conn.close()
+        logging.info(f"[DEAL] Сделка успешно записана: {ticker}, qty={qty}, price={price}, date={date}, currency={currency}, exchange={exchange}, category={category}")
     except Exception as e:
+        logging.error(f"[DEAL] Ошибка при добавлении сделки: {e}")
         await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {escape_md(str(e))}", context)
         return
 
     # Проверяем, что запись действительно добавлена (result должен содержать INSERT ...)
     if not (result and "INSERT" in result):
+        logging.error(f"[DEAL] Сделка не была записана в базу данных: {ticker}, qty={qty}, price={price}, date={date}, currency={currency}, exchange={exchange}, category={category}")
         await _send_deal_message(update_or_query, "❌ Сделка не была записана в базу данных.", context)
         return
 
