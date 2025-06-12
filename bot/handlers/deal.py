@@ -13,6 +13,8 @@ def escape_md(text):
     if text is None:
         return ""
     text = str(text)
+    # Для MarkdownV2 обязательно экранируем обратный слэш первым!
+    text = text.replace('\\', '\\\\')
     for ch in ('_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'):
         text = text.replace(ch, f'\\{ch}')
     return text
@@ -26,7 +28,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "❗ Недостаточно данных. Введите: тикер, количество и цену.\n\n"
                 "Пример: `AAPL 10 150 USD 11-06-2025`",
-                parse_mode="Markdown"
+                parse_mode="MarkdownV2"
             )
             return
 
@@ -45,7 +47,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except ValueError:
                     await update.message.reply_text(
                         "❌ Ошибка: неверный формат даты. Используйте `дд-мм-гггг`",
-                        parse_mode="Markdown"
+                        parse_mode="MarkdownV2"
                     )
                     return
 
@@ -62,7 +64,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "date": date,
                 "currency": currency
             }
-            await update.message.reply_text(f"🆕 Новый актив: {escape_md(ticker)}", parse_mode="Markdown")
+            await update.message.reply_text(f"🆕 Новый актив: {escape_md(ticker)}", parse_mode="MarkdownV2")
 
             if not currency:
                 buttons = [
@@ -87,7 +89,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {escape_md(str(e))}", parse_mode="Markdown")
+        await update.message.reply_text(f"❌ Ошибка: {escape_md(str(e))}", parse_mode="MarkdownV2")
 
 async def ask_category(update_or_query):
     buttons = [
@@ -120,33 +122,33 @@ async def choose_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         currency = data.split("_")[1]
         pending = context.user_data.get("pending_deal")
         if not pending:
-            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="Markdown")
+            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="MarkdownV2")
             return
         pending["currency"] = currency
-        await query.edit_message_text(f"💱 Валюта выбрана: {escape_md(currency)}", parse_mode="Markdown")
+        await query.edit_message_text(f"💱 Валюта выбрана: {escape_md(currency)}", parse_mode="MarkdownV2")
         await ask_category(query)
 
     elif data.startswith("category_"):
         category = data.split("_")[1]
         pending = context.user_data.get("pending_deal")
         if not pending:
-            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="Markdown")
+            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="MarkdownV2")
             return
 
         pending["category"] = category
-        await query.edit_message_text(f"📂 Категория выбрана: {escape_md(category)}", parse_mode="Markdown")
+        await query.edit_message_text(f"📂 Категория выбрана: {escape_md(category)}", parse_mode="MarkdownV2")
         await ask_exchange(query)
 
     elif data.startswith("exchange_"):
         exchange = data.split("_", 1)[1]
         pending = context.user_data.get("pending_deal")
         if not pending:
-            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="Markdown")
+            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="MarkdownV2")
             return
 
         if exchange == "Другая":
             pending["awaiting_custom_exchange"] = True
-            await query.edit_message_text("✍️ Введите название биржи текстом:", parse_mode="Markdown")
+            await query.edit_message_text("✍️ Введите название биржи текстом:", parse_mode="MarkdownV2")
             return
 
         pending["exchange"] = exchange
@@ -244,11 +246,11 @@ async def _send_deal_message(update_or_query, text, context=None):
         await context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode="Markdown"
+            parse_mode="MarkdownV2"
         )
     else:
         # fallback на старое поведение
         if hasattr(update_or_query, "edit_message_text"):
-            await update_or_query.edit_message_text(text, parse_mode="Markdown")
+            await update_or_query.edit_message_text(text, parse_mode="MarkdownV2")
         elif hasattr(update_or_query, "message"):
-            await update_or_query.message.reply_text(text, parse_mode="Markdown")
+            await update_or_query.message.reply_text(text, parse_mode="MarkdownV2")
