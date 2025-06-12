@@ -44,6 +44,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await conn.close()
 
         if row is None:
+            # Новый тикер: спросить валюту и категорию
             context.user_data["pending_deal"] = {
                 "ticker": ticker,
                 "qty": qty,
@@ -51,7 +52,6 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "date": date,
                 "currency": currency
             }
-
             await update.message.reply_text(f"🆕 Новый актив: {ticker}")
 
             if not currency:
@@ -64,13 +64,14 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await ask_category(update)
             return
 
-        # Для существующего актива — спросить биржу
+        # Тикер уже есть: берем валюту и категорию из portfolio
         context.user_data["pending_deal"] = {
             "ticker": ticker,
             "qty": qty,
             "price": price,
             "date": date,
-            "currency": currency
+            "currency": row["currency"],
+            "category": row["category"]
         }
         await ask_exchange(update)
         return
