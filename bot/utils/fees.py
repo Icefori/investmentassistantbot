@@ -1,5 +1,12 @@
-EXCHANGES_FOREIGN = {"NASDAQ", "AMEX", "LSE", "NYSE"}
+from decimal import Decimal, ROUND_HALF_UP
+
 EXCHANGES_KZ = {"KASE", "AIX"}
+
+def quant2(val):
+    return Decimal(val).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+def quant4(val):
+    return Decimal(val).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 def calc_fees(exchange: str, qty: int, price: float, is_sell: bool = False) -> dict:
     """
@@ -12,33 +19,29 @@ def calc_fees(exchange: str, qty: int, price: float, is_sell: bool = False) -> d
     Любая биржа, кроме KASE и AIX, считается иностранной.
     """
     exchange = (exchange or "").upper()
-    br_fee = 0.0
-    ex_fee = 0.0
-    cp_fee = 0.0
+    br_fee = Decimal("0.00")
+    ex_fee = Decimal("0.00")
+    cp_fee = Decimal("0.00")
+
+    qty = Decimal(qty)
+    price = Decimal(str(price))
 
     if exchange not in EXCHANGES_KZ:
         if not is_sell:
-            cp_fee = max(0.01 * qty, 7.5)
-            br_fee = 0.001 * qty * price
-            ex_fee = 0.0
+            cp_fee = quant2(max(Decimal("0.01") * qty, Decimal("7.5")))
+            br_fee = quant2(Decimal("0.001") * qty * price)
+            ex_fee = Decimal("0.00")
         else:
-            cp_fee = 0.0
-            ex_fee = 0.0001 * qty + 0.000072 * qty
-            br_fee = 0.001 * qty * price
+            cp_fee = Decimal("0.00")
+            ex_fee = quant2(Decimal("0.0001") * qty + Decimal("0.000072") * qty)
+            br_fee = quant2(Decimal("0.001") * qty * price)
     else:
-        br_fee = 0.0003 * qty * price
-        ex_fee = 0.0
-        cp_fee = 0.0
+        br_fee = quant2(Decimal("0.0003") * qty * price)
+        ex_fee = Decimal("0.00")
+        cp_fee = Decimal("0.00")
 
-    # Округление до двух знаков после запятой
-    br_fee = round(br_fee, 2)
-    ex_fee = round(ex_fee, 2)
-    cp_fee = round(cp_fee, 2)
-
-    # Абсолютная сумма сделки (qty * price + все комиссии)
-    sum_value = round(qty * price + br_fee + ex_fee + cp_fee, 2)
-    # Итоговая цена за 1 бумагу с учетом комиссий
-    end_pr = round(sum_value / qty, 4) if qty else 0.0
+    sum_value = quant2(qty * price + br_fee + ex_fee + cp_fee)
+    end_pr = quant4(sum_value / qty) if qty else Decimal("0.0000")
 
     return {
         "br_fee": br_fee,
