@@ -85,7 +85,23 @@ async def summarize_portfolio():
             total_qty += qty
             total_cost += qty * price
             if qty > 0:
-                ticker_flows.append((dt, -qty * price))
+                # Покупка — отрицательный cashflow
+                if currency == "KZT":
+                    amount = price * qty
+                elif currency == "USD":
+                    amount = price * qty * get_rate("USD")
+                else:
+                    amount = price * qty * get_rate(currency)
+                ticker_flows.append((dt, -abs(amount)))
+            elif qty < 0:
+                # Продажа — положительный cashflow
+                if currency == "KZT":
+                    amount = price * abs(qty)
+                elif currency == "USD":
+                    amount = price * abs(qty) * get_rate("USD")
+                else:
+                    amount = price * abs(qty) * get_rate(currency)
+                ticker_flows.append((dt, abs(amount)))
             if earliest_date is None or dt < earliest_date:
                 earliest_date = dt
 
@@ -119,8 +135,10 @@ async def summarize_portfolio():
             market_value_kzt = market_value * get_rate(currency)
             market_value_usd = market_value_kzt / get_rate("USD")
 
+        # Итоговая стоимость на сегодня — положительный cashflow
         ticker_flows.append((today, market_value_kzt))
         full_cash_flows.extend(ticker_flows)
+        category_cashflows[category].extend(ticker_flows)
 
         full_market_value_kzt += market_value_kzt
         full_market_value_usd += market_value_usd
@@ -194,6 +212,7 @@ async def summarize_portfolio():
             lines.append("")  # пустая строка между активами
 
     if full_cash_flows:
+        # Итоговый XIRR теперь считается по всем покупкам/продажам и стоимости портфеля
         xirr_result = await xirr(full_cash_flows)
         inflow = sum(cf for d, cf in full_cash_flows if cf > 0)
         outflow = -sum(cf for d, cf in full_cash_flows if cf < 0)
