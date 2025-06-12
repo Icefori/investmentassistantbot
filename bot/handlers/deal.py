@@ -165,19 +165,21 @@ async def handle_custom_exchange(update: Update, context: ContextTypes.DEFAULT_T
 async def finalize_deal(update_or_query, context):
     pending = context.user_data.pop("pending_deal", None)
     if not pending:
-        if hasattr(update_or_query, "edit_message_text"):
-            await update_or_query.edit_message_text("⚠️ Нет ожидающей сделки.")
-        else:
-            await update_or_query.message.reply_text("⚠️ Нет ожидающей сделки.")
+        await _send_deal_message(update_or_query, "⚠️ Нет ожидающей сделки.")
         return
 
-    ticker = pending["ticker"]
-    qty = pending["qty"]
-    price = pending["price"]
-    date = pending["date"]
-    currency = pending.get("currency", "KZT")
-    exchange = pending["exchange"]
-    category = pending.get("category", "")
+    ticker = pending.get("ticker")
+    qty = pending.get("qty")
+    price = pending.get("price")
+    date = pending.get("date")
+    currency = pending.get("currency")
+    exchange = pending.get("exchange")
+    category = pending.get("category")
+
+    # Проверяем, что все обязательные поля заполнены
+    if not all([ticker, qty is not None, price is not None, date, currency, exchange, category]):
+        await _send_deal_message(update_or_query, "⚠️ Не все параметры сделки заполнены. Проверьте ввод.")
+        return
 
     is_sell = qty < 0
     fees = calc_fees(exchange, abs(qty), price, is_sell)
@@ -185,18 +187,26 @@ async def finalize_deal(update_or_query, context):
     ex_fee = fees["ex_fee"]
     cp_fee = fees["cp_fee"]
 
-    conn = await connect_db()
-    # Добавляем в portfolio если новый актив
-    if category:
+    try:
+        conn = await connect_db()
+        # Добавляем в portfolio если новый актив
         await conn.execute(
             "INSERT INTO portfolio (ticker, category, currency) VALUES ($1, $2, $3) ON CONFLICT (ticker) DO NOTHING",
             ticker, category, currency
         )
-    await conn.execute(
-        "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee
-    )
-    await conn.close()
+        result = await conn.execute(
+            "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee
+        )
+        await conn.close()
+    except Exception as e:
+        await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {e}")
+        return
+
+    # Проверяем, что запись действительно добавлена (result должен содержать INSERT ...)
+    if not (result and "INSERT" in result):
+        await _send_deal_message(update_or_query, "❌ Сделка не была записана в базу данных.")
+        return
 
     sign = "➕ Покупка" if qty > 0 else "➖ Продажа"
     response = (
@@ -207,7 +217,27 @@ async def finalize_deal(update_or_query, context):
         f"Комиссии: br_fee={br_fee}, ex_fee={ex_fee}, cp_fee={cp_fee}\n"
         f"📅 Дата: {date}"
     )
-    if hasattr(update_or_query, "edit_message_text"):
-        await update_or_query.edit_message_text(response, parse_mode="Markdown")
+    await _send_deal_message(update_or_query, response)
+
+async def _send_deal_message(update_or_query, text):
+    # Универсальная отправка сообщения пользователю
+    if hasattr(update_or_query, "from_user"):
+        user_id = update_or_query.from_user.id
+    elif hasattr(update_or_query, "message") and hasattr(update_or_query.message, "chat_id"):
+        user_id = update_or_query.message.chat_id
     else:
-        await update_or_query.message.reply_text(response, parse_mode="Markdown")
+        user_id = None
+
+    context = update_or_query.application if hasattr(update_or_query, "application") else None
+    if user_id and context:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            parse_mode="Markdown"
+        )
+    else:
+        # fallback на старое поведение
+        if hasattr(update_or_query, "edit_message_text"):
+            await update_or_query.edit_message_text(text, parse_mode="Markdown")
+        else:
+            await update_or_query.message.reply_text(text, parse_mode="Markdown")
