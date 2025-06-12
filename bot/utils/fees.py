@@ -18,16 +18,16 @@ def calc_fees(exchange: str, qty: int, price: float, is_sell: bool = False) -> d
         # Покупка
         if not is_sell:
             cp_fee = max(0.01 * qty, 7.5)  # 0.01$ за бумагу, минимум 7.5$
-            br_fee = round(0.001 * qty * price, 6)  # 0.1% от суммы сделки
+            br_fee = 0.001 * qty * price  # 0.1% от суммы сделки
             ex_fee = 0.0
         else:
             # Продажа
             cp_fee = 0.0
-            ex_fee = round(0.0001 * qty + 0.000072 * qty, 6)  # NSCC + CAT fee
-            br_fee = round(0.001 * qty * price, 6)  # 0.1% от суммы сделки
+            ex_fee = 0.0001 * qty + 0.000072 * qty  # NSCC + CAT fee
+            br_fee = 0.001 * qty * price  # 0.1% от суммы сделки
     elif exchange in EXCHANGES_KZ:
         # KASE, AIX
-        br_fee = round(0.0003 * qty * price, 6)  # 0.03% от суммы сделки
+        br_fee = 0.0003 * qty * price  # 0.03% от суммы сделки
         ex_fee = 0.0
         cp_fee = 0.0
     else:
@@ -35,6 +35,11 @@ def calc_fees(exchange: str, qty: int, price: float, is_sell: bool = False) -> d
         br_fee = 0.0
         ex_fee = 0.0
         cp_fee = 0.0
+
+    # Округление до двух знаков после запятой
+    br_fee = round(br_fee, 2)
+    ex_fee = round(ex_fee, 2)
+    cp_fee = round(cp_fee, 2)
 
     return {
         "br_fee": br_fee,
