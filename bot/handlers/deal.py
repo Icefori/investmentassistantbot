@@ -13,9 +13,8 @@ def escape_md(text):
     if text is None:
         return ""
     text = str(text)
-    # Для MarkdownV2 обязательно экранируем обратный слэш первым!
-    text = text.replace('\\', '\\\\')
-    for ch in ('_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'):
+    # Для обычного Markdown экранируем только *, _, `
+    for ch in ('*', '_', '`'):
         text = text.replace(ch, f'\\{ch}')
     return text
 
@@ -214,12 +213,9 @@ async def finalize_deal(update_or_query, context):
     sign = "➕ Покупка" if qty > 0 else "➖ Продажа"
     response = (
         f"✅ Сделка добавлена\n\n"
-        f"*{escape_md(ticker)}* | {escape_md(sign)}\n"
+        f"{escape_md(ticker)} | {escape_md(sign)}\n"
         f"{escape_md(abs(qty))} шт × {escape_md(f'{price:.2f}')} {escape_md(currency)}\n"
         f"Биржа: {escape_md(exchange)}\n"
-        f"Комиссии: br_fee={escape_md(br_fee)}, ex_fee={escape_md(ex_fee)}, cp_fee={escape_md(cp_fee)}\n"
-        f"Сумма: {escape_md(sum_value)}\n"
-        f"Цена с учетом комиссий: {escape_md(end_pr)}\n"
         f"📅 Дата: {escape_md(date)}"
     )
     await _send_deal_message(update_or_query, response, context)
@@ -246,11 +242,11 @@ async def _send_deal_message(update_or_query, text, context=None):
         await context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode="MarkdownV2"
+            parse_mode="Markdown"
         )
     else:
         # fallback на старое поведение
         if hasattr(update_or_query, "edit_message_text"):
-            await update_or_query.edit_message_text(text, parse_mode="MarkdownV2")
+            await update_or_query.edit_message_text(text, parse_mode="Markdown")
         elif hasattr(update_or_query, "message"):
-            await update_or_query.message.reply_text(text, parse_mode="MarkdownV2")
+            await update_or_query.message.reply_text(text, parse_mode="Markdown")
