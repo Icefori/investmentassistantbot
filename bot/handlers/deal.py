@@ -9,6 +9,14 @@ CURRENCY_CODES = {"KZT", "USD", "EUR", "RUB", "GBP", "CHF", "JPY", "CNY"}
 EXCHANGES = ["KASE", "AIX", "NASDAQ", "AMEX", "LSE", "Другая"]
 OWNER_CHAT_ID = os.getenv("OWNER_CHAT_ID")
 
+def escape_md(text):
+    if text is None:
+        return ""
+    text = str(text)
+    for ch in ('_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'):
+        text = text.replace(ch, f'\\{ch}')
+    return text
+
 async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message.text.strip()
@@ -54,7 +62,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "date": date,
                 "currency": currency
             }
-            await update.message.reply_text(f"🆕 Новый актив: {ticker}")
+            await update.message.reply_text(f"🆕 Новый актив: {escape_md(ticker)}", parse_mode="Markdown")
 
             if not currency:
                 buttons = [
@@ -79,7 +87,7 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        await update.message.reply_text(f"❌ Ошибка: {escape_md(str(e))}", parse_mode="Markdown")
 
 async def ask_category(update_or_query):
     buttons = [
@@ -112,33 +120,33 @@ async def choose_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
         currency = data.split("_")[1]
         pending = context.user_data.get("pending_deal")
         if not pending:
-            await query.edit_message_text("⚠️ Нет ожидающей сделки.")
+            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="Markdown")
             return
         pending["currency"] = currency
-        await query.edit_message_text(f"💱 Валюта выбрана: {currency}")
+        await query.edit_message_text(f"💱 Валюта выбрана: {escape_md(currency)}", parse_mode="Markdown")
         await ask_category(query)
 
     elif data.startswith("category_"):
         category = data.split("_")[1]
         pending = context.user_data.get("pending_deal")
         if not pending:
-            await query.edit_message_text("⚠️ Нет ожидающей сделки.")
+            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="Markdown")
             return
 
         pending["category"] = category
-        await query.edit_message_text(f"📂 Категория выбрана: {category}")
+        await query.edit_message_text(f"📂 Категория выбрана: {escape_md(category)}", parse_mode="Markdown")
         await ask_exchange(query)
 
     elif data.startswith("exchange_"):
         exchange = data.split("_", 1)[1]
         pending = context.user_data.get("pending_deal")
         if not pending:
-            await query.edit_message_text("⚠️ Нет ожидающей сделки.")
+            await query.edit_message_text("⚠️ Нет ожидающей сделки.", parse_mode="Markdown")
             return
 
         if exchange == "Другая":
             pending["awaiting_custom_exchange"] = True
-            await query.edit_message_text("✍️ Введите название биржи текстом:")
+            await query.edit_message_text("✍️ Введите название биржи текстом:", parse_mode="Markdown")
             return
 
         pending["exchange"] = exchange
@@ -193,7 +201,7 @@ async def finalize_deal(update_or_query, context):
         )
         await conn.close()
     except Exception as e:
-        await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {e}", context)
+        await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {escape_md(str(e))}", context)
         return
 
     # Проверяем, что запись действительно добавлена (result должен содержать INSERT ...)
@@ -204,13 +212,13 @@ async def finalize_deal(update_or_query, context):
     sign = "➕ Покупка" if qty > 0 else "➖ Продажа"
     response = (
         f"✅ Сделка добавлена\n\n"
-        f"*{ticker}* | {sign}\n"
-        f"{abs(qty)} шт × {price:.2f} {currency}\n"
-        f"Биржа: {exchange}\n"
-        f"Комиссии: br_fee={br_fee}, ex_fee={ex_fee}, cp_fee={cp_fee}\n"
-        f"Сумма: {sum_value}\n"
-        f"Цена с учетом комиссий: {end_pr}\n"
-        f"📅 Дата: {date}"
+        f"*{escape_md(ticker)}* | {escape_md(sign)}\n"
+        f"{escape_md(abs(qty))} шт × {escape_md(f'{price:.2f}')} {escape_md(currency)}\n"
+        f"Биржа: {escape_md(exchange)}\n"
+        f"Комиссии: br_fee={escape_md(br_fee)}, ex_fee={escape_md(ex_fee)}, cp_fee={escape_md(cp_fee)}\n"
+        f"Сумма: {escape_md(sum_value)}\n"
+        f"Цена с учетом комиссий: {escape_md(end_pr)}\n"
+        f"📅 Дата: {escape_md(date)}"
     )
     await _send_deal_message(update_or_query, response, context)
 
