@@ -40,8 +40,8 @@ def calc_fees(exchange: str, qty: int, price: float, is_sell: bool = False) -> d
         ex_fee = Decimal("0.00")
         cp_fee = Decimal("0.00")
 
-    sum_value = quant2(qty * price + br_fee + ex_fee + cp_fee)
-    end_pr = quant4(sum_value / qty) if qty else Decimal("0.0000")
+    sum_value = quant2(abs(qty * price) + br_fee + ex_fee + cp_fee)
+    end_pr = quant4(sum_value / abs(qty)) if qty else Decimal("0.0000")
 
     return {
         "br_fee": br_fee,

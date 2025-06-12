@@ -1,4 +1,4 @@
-from datetime import datetime 
+from datetime import datetime
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from bot.db import connect_db
@@ -79,7 +79,6 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
-
 async def ask_category(update_or_query):
     buttons = [
         [InlineKeyboardButton("KZ", callback_data="category_KZ"),
@@ -92,7 +91,6 @@ async def ask_category(update_or_query):
     else:
         await update_or_query.message.reply_text("📂 Выберите категорию:", reply_markup=InlineKeyboardMarkup(buttons))
 
-
 async def ask_exchange(update_or_query):
     buttons = [
         [InlineKeyboardButton(ex, callback_data=f"exchange_{ex}")] for ex in EXCHANGES[:-1]
@@ -102,16 +100,6 @@ async def ask_exchange(update_or_query):
         await update_or_query.message.reply_text("🌐 Выберите биржу:", reply_markup=InlineKeyboardMarkup(buttons))
     else:
         await update_or_query.message.reply_text("🌐 Выберите биржу:", reply_markup=InlineKeyboardMarkup(buttons))
-
-
-async def save_transaction(ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee):
-    conn = await connect_db()
-    await conn.execute(
-        "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee
-    )
-    await conn.close()
-
 
 async def choose_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -187,6 +175,8 @@ async def finalize_deal(update_or_query, context):
     br_fee = fees["br_fee"]
     ex_fee = fees["ex_fee"]
     cp_fee = fees["cp_fee"]
+    sum_value = fees["sum"]
+    end_pr = fees["end_pr"]
 
     try:
         conn = await connect_db()
@@ -196,8 +186,8 @@ async def finalize_deal(update_or_query, context):
             ticker, category, currency
         )
         result = await conn.execute(
-            "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-            ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee
+            "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum, end_pr) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum_value, end_pr
         )
         await conn.close()
     except Exception as e:
@@ -216,6 +206,8 @@ async def finalize_deal(update_or_query, context):
         f"{abs(qty)} шт × {price:.2f} {currency}\n"
         f"Биржа: {exchange}\n"
         f"Комиссии: br_fee={br_fee}, ex_fee={ex_fee}, cp_fee={cp_fee}\n"
+        f"Сумма: {sum_value}\n"
+        f"Цена с учетом комиссий: {end_pr}\n"
         f"📅 Дата: {date}"
     )
     await _send_deal_message(update_or_query, response)
