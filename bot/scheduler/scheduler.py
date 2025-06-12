@@ -120,3 +120,4 @@ async def run_scheduler():
             await send_daily_currency_update()
             await send_market_open_notifications()
     await asyncio.Event().wait()  # Держим event loop
+    
