@@ -9,9 +9,9 @@ from telegram.ext import (
     CommandHandler, CallbackQueryHandler, filters
 )
 
-from handlers.deal import handle_deal, choose_category
-from utils.portfolio import summarize_portfolio
-from utils.formatter import send_markdown
+from bot.handlers.deal import handle_deal, choose_category
+from bot.utils.portfolio import summarize_portfolio
+from bot.utils.formatter import send_markdown
 from bot.db import connect_db
 from bot.utils.export import export_to_excel
 from bot.utils.taxes import export_taxes_excel
