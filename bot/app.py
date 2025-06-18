@@ -18,7 +18,7 @@ from bot.handlers.taxes import export_taxes_excel
 from bot.handlers.user import (
     is_registered, start_registration, ask_name, ask_timezone, ask_custom_timezone, finish_registration
 )
-from bot.utils.menu import reply_markup  # <-- импортируем кнопки из menu.py
+from bot.utils.menu import reply_markup
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -27,9 +27,9 @@ if not BOT_TOKEN:
 # Этапы регистрации
 ASK_NAME, ASK_TIMEZONE, ASK_CUSTOM_TIMEZONE = range(3)
 
-# ConversationHandler для регистрации (без entry_points!)
+# ConversationHandler для регистрации (только для новых пользователей)
 registration_conv_handler = ConversationHandler(
-    entry_points=[],  # теперь пусто!
+    entry_points=[CommandHandler("start", start_registration)],
     states={
         ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
         ASK_TIMEZONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_timezone)],
@@ -40,28 +40,18 @@ registration_conv_handler = ConversationHandler(
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Проверяем регистрацию пользователя
     if await is_registered(user_id):
         await update.message.reply_text(
             "👋 Добро пожаловать! Выберите действие из меню ниже:",
             reply_markup=reply_markup
         )
-        return
-    # Если не зарегистрирован — запускаем регистрацию
-    return await start_registration(update, context)
-
-# После успешной регистрации показываем меню (вызывается из finish_registration)
-async def show_menu_after_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🎉 Регистрация завершена! Теперь вы можете пользоваться всеми возможностями бота.\n\n"
-        "Выберите действие из меню ниже:",
-        reply_markup=reply_markup
-    )
+    else:
+        # Если не зарегистрирован — запускаем регистрацию через ConversationHandler
+        await start_registration(update, context)
 
 async def show_all_deals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     conn = await connect_db()
-    # Показываем только сделки текущего пользователя
     rows = await conn.fetch(
         "SELECT * FROM transactions WHERE user_id = $1 ORDER BY date DESC", user_id
     )
@@ -134,7 +124,9 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_bot():
     nest_asyncio.apply()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # ConversationHandler для регистрации только для новых пользователей
     app.add_handler(registration_conv_handler)
+    # Обработка /start для уже зарегистрированных
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("all_deals", show_all_deals))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
