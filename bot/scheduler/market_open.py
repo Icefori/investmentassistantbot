@@ -33,28 +33,28 @@ MARKETS = [
     }
 ]
 
-def get_market_messages(event: str, now_ams: datetime):
-    """event: 'open' или 'close_soon'"""
+def get_market_messages(event: str, now_local: datetime, gmt_offset: str):
+    """
+    event: 'open' или 'close_soon'
+    now_local: локальное время пользователя (datetime)
+    gmt_offset: строка, например '+6' или '-3'
+    """
     messages = []
-    ams_tz = pytz.timezone("Europe/Amsterdam")
     grouped = {}
 
     for market in MARKETS:
         market_tz = pytz.timezone(market["tz"])
-        today = now_ams.astimezone(market_tz).date()
+        today = now_local.astimezone(market_tz).date()
         open_dt = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=market["open"][0], minutes=market["open"][1]))
         close_dt = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=market["close"][0], minutes=market["close"][1]))
-        open_dt_ams = open_dt.astimezone(ams_tz)
-        close_dt_ams = close_dt.astimezone(ams_tz)
-        now = now_ams.replace(second=0, microsecond=0)
-
+        # Сравниваем по локальному времени пользователя
         if event == "open":
-            key_dt = open_dt_ams.replace(second=0, microsecond=0)
-            if now == key_dt:
+            key_dt = now_local.replace(hour=market["open"][0], minute=market["open"][1], second=0, microsecond=0)
+            if now_local.replace(second=0, microsecond=0) == key_dt:
                 grouped.setdefault(key_dt, []).append(market)
         elif event == "close_soon":
-            key_dt = (close_dt_ams - timedelta(hours=1)).replace(second=0, microsecond=0)
-            if now == key_dt:
+            key_dt = now_local.replace(hour=market["close"][0] - 1, minute=market["close"][1], second=0, microsecond=0)
+            if now_local.replace(second=0, microsecond=0) == key_dt:
                 grouped.setdefault(key_dt, []).append(market)
 
     for group in grouped.values():
@@ -62,19 +62,16 @@ def get_market_messages(event: str, now_ams: datetime):
         if event == "open":
             open_time = group[0]["open"]
             close_time = group[0]["close"]
-            open_dt_ams = now_ams.replace(hour=open_time[0], minute=open_time[1], second=0, microsecond=0)
-            close_dt_ams = now_ams.replace(hour=close_time[0], minute=close_time[1], second=0, microsecond=0)
             messages.append(
                 f"{names} — открытие торгов!\n"
-                f"🟢 Биржа открыта с {open_dt_ams.strftime('%H:%M')} до {close_dt_ams.strftime('%H:%M')} (по Амстердаму)\n"
+                f"🟢 Биржа открыта с {open_time[0]:02}:{open_time[1]:02} до {close_time[0]:02}:{close_time[1]:02} (GMT{gmt_offset})\n"
                 f"Удачных сделок! 🚀"
             )
         elif event == "close_soon":
             close_time = group[0]["close"]
-            close_dt_ams = now_ams.replace(hour=close_time[0], minute=close_time[1], second=0, microsecond=0)
             messages.append(
                 f"{names} — до закрытия торгов остался 1 час!\n"
-                f"🔔 Биржа закроется в {close_dt_ams.strftime('%H:%M')} (по Амстердаму)\n"
+                f"🔔 Биржа закроется в {close_time[0]:02}:{close_time[1]:02} (GMT{gmt_offset})\n"
                 f"Проверьте свои позиции и заявки! ⏳"
             )
     return messages

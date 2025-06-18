@@ -1,59 +1,61 @@
 import asyncpg
 from datetime import datetime, date
-from collections import defaultdict
-from math import isclose
+from collections import defaultdict, deque
 from bot.db import connect_db
 from bot.scheduler.currency import fetch_rates_by_date
 
-async def xirr(cash_flows: list[tuple[datetime, float]]) -> float | None:
-    if not cash_flows:
-        return None
+async def summarize_portfolio(update, context):
+    """
+    📊 *Мой портфель*
 
-    d0 = min(d for d, _ in cash_flows)
+    В этом отчёте показана **нереализованная прибыль** по каждому активу, категории и всему портфелю.
+    Формула: (Текущая стоимость - Сумма вложений) / Сумма вложений × 100%
+    Вложения считаются по курсу на дату покупки. Если были продажи, вложения уменьшаются по принципу FIFO.
+    Дивиденды, комиссии и реализованная прибыль не учитываются.
+    """
 
-    def npv(rate):
-        return sum(cf / ((1 + rate) ** ((d - d0).days / 365)) for d, cf in cash_flows)
+    user_id = update.effective_user.id  # Получаем user_id пользователя
 
-    low, high = -0.999, 10.0
-    for _ in range(100):
-        mid = (low + high) / 2
-        val = npv(mid)
-        if isclose(val, 0, abs_tol=1e-6):
-            return mid
-        if val > 0:
-            low = mid
-        else:
-            high = mid
-    return None
-
-
-async def summarize_portfolio():
     conn = await connect_db()
-    portfolio_rows = await conn.fetch("SELECT * FROM portfolio")
-    transactions_rows = await conn.fetch("SELECT * FROM transactions")
+    portfolio_rows = await conn.fetch("SELECT * FROM portfolio WHERE user_id = $1", user_id)
+    transactions_rows = await conn.fetch("SELECT * FROM transactions WHERE user_id = $1 ORDER BY date", user_id)
     await conn.close()
 
     if not portfolio_rows:
-        return "❗ Портфель пуст. Добавьте хотя бы одну сделку."
+        return (
+            "❗ Портфель пуст. Добавьте хотя бы одну сделку.\n\n"
+            "ℹ️ В этом отчёте отображается *нереализованная прибыль* по формуле:\n"
+            "(Текущая стоимость - Сумма вложений) / Сумма вложений × 100%\n"
+            "Вложения считаются по курсу на дату покупки, продажи уменьшают вложения по FIFO."
+        )
 
     today = date.today()
-    full_cash_flows = []
-    full_market_value_kzt = 0
-    full_market_value_usd = 0
-    category_totals_kzt = defaultdict(float)
-    category_totals_usd = defaultdict(float)
     ticker_data = {}
-    category_cashflows = defaultdict(list)
     tickers_by_category = defaultdict(list)
-    missing_currencies = set()
+    category_invested = defaultdict(float)
+    category_gain = defaultdict(float)
+    category_market_value_kzt = defaultdict(float)
+    category_market_value_usd = defaultdict(float)
+    full_invested = 0.0
+    full_gain = 0.0
+    full_market_value_kzt = 0.0
+    full_market_value_usd = 0.0
 
-    # Получаем только курсы за сегодня
+    # Получаем курсы валют на все даты, которые есть в транзакциях
+    all_dates = sorted({datetime.strptime(tx["date"], "%d-%m-%Y").date() for tx in transactions_rows})
+    rates_by_date = {}
+    for d in all_dates:
+        rates, _ = await fetch_rates_by_date(datetime.combine(d, datetime.min.time()))
+        rates_by_date[d] = dict(rates)
+        rates_by_date[d]["KZT"] = 1.0
+        rates_by_date[d]["USD"] = rates_by_date[d].get("USD", 1.0)
+
+    # Курс на сегодня
     today_rates, _ = await fetch_rates_by_date(datetime.now())
     exchange_rates = dict(today_rates)
     exchange_rates["KZT"] = 1.0
     exchange_rates["USD"] = exchange_rates.get("USD", 1.0)
-
-    get_rate = lambda cur: (exchange_rates.get(cur) or 1.0)
+    get_rate_today = lambda cur: (exchange_rates.get(cur) or 1.0)
 
     transactions_by_ticker = defaultdict(list)
     for tx in transactions_rows:
@@ -69,46 +71,44 @@ async def summarize_portfolio():
         if not txs:
             continue
 
-        # Проверка наличия курса валюты
-        if currency not in exchange_rates:
-            missing_currencies.add(currency)
-
+        # FIFO очередь: каждый элемент — (qty, price, date, currency, rate_on_date)
+        fifo = deque()
         total_qty = 0
-        total_cost = 0.0
-        earliest_date = None
-        ticker_flows = []
 
         for tx in txs:
             qty = tx["qty"]
             price = tx["price"]
-            dt = datetime.strptime(tx["date"], "%d-%m-%Y").date()
-            total_qty += qty
-            total_cost += qty * price
+            tx_date = datetime.strptime(tx["date"], "%d-%m-%Y").date()
+            rate_on_date = rates_by_date[tx_date].get(currency, 1.0)
             if qty > 0:
-                # Покупка — отрицательный cashflow
-                if currency == "KZT":
-                    amount = price * qty
-                elif currency == "USD":
-                    amount = price * qty * get_rate("USD")
-                else:
-                    amount = price * qty * get_rate(currency)
-                ticker_flows.append((dt, -abs(amount)))
+                # Покупка — добавляем в FIFO
+                fifo.append({"qty": qty, "price": price, "rate": rate_on_date, "currency": currency})
+                total_qty += qty
             elif qty < 0:
-                # Продажа — положительный cashflow
-                if currency == "KZT":
-                    amount = price * abs(qty)
-                elif currency == "USD":
-                    amount = price * abs(qty) * get_rate("USD")
-                else:
-                    amount = price * abs(qty) * get_rate(currency)
-                ticker_flows.append((dt, abs(amount)))
-            if earliest_date is None or dt < earliest_date:
-                earliest_date = dt
+                # Продажа — снимаем с FIFO (FIFO-вычитание)
+                sell_qty = -qty
+                total_qty += qty
+                while sell_qty > 0 and fifo:
+                    lot = fifo[0]
+                    if lot["qty"] > sell_qty:
+                        lot["qty"] -= sell_qty
+                        sell_qty = 0
+                    else:
+                        sell_qty -= lot["qty"]
+                        fifo.popleft()
 
-        if total_qty == 0:
+        if total_qty <= 0 or not fifo:
             continue
 
-        avg_price = total_cost / total_qty
+        # Считаем вложения по FIFO-остатку
+        invested = 0.0
+        for lot in fifo:
+            if lot["currency"] == "KZT":
+                invested += lot["price"] * lot["qty"]
+            elif lot["currency"] == "USD":
+                invested += lot["price"] * lot["qty"] * lot["rate"]
+            else:
+                invested += lot["price"] * lot["qty"] * lot["rate"]
 
         # Получаем цену
         if currency == "KZT":
@@ -126,107 +126,86 @@ async def summarize_portfolio():
         # Конвертация в обе валюты
         if currency == "KZT":
             market_value_kzt = market_value
-            market_value_usd = market_value / get_rate("USD")
+            market_value_usd = market_value / get_rate_today("USD")
         elif currency == "USD":
             market_value_usd = market_value
-            market_value_kzt = market_value * get_rate("USD")
+            market_value_kzt = market_value * get_rate_today("USD")
         else:
-            # Для других валют: сначала в тенге, потом в доллары
-            market_value_kzt = market_value * get_rate(currency)
-            market_value_usd = market_value_kzt / get_rate("USD")
+            market_value_kzt = market_value * get_rate_today(currency)
+            market_value_usd = market_value_kzt / get_rate_today("USD")
 
-        # Итоговая стоимость на сегодня — положительный cashflow
-        ticker_flows.append((today, market_value_kzt))
-        full_cash_flows.extend(ticker_flows)
-        category_cashflows[category].extend(ticker_flows)
-
-        full_market_value_kzt += market_value_kzt
-        full_market_value_usd += market_value_usd
-        category_totals_kzt[category] += market_value_kzt
-        category_totals_usd[category] += market_value_usd
-        category_cashflows[category].extend(ticker_flows)
+        # Чистая прибыль и проценты по активу
+        gain = market_value_kzt - invested
+        gain_percent = (gain / invested * 100) if invested else 0
 
         ticker_data[ticker] = {
             "category": category,
             "currency": currency,
             "qty": total_qty,
-            "avg_price": avg_price,
+            "invested": invested,
             "current_price": current_price,
-            "total": market_value,
-            "total_kzt": market_value_kzt,
-            "total_usd": market_value_usd,
-            "earliest": earliest_date,
+            "market_value": market_value,
+            "market_value_kzt": market_value_kzt,
+            "market_value_usd": market_value_usd,
+            "gain": gain,
+            "gain_percent": gain_percent,
         }
 
         tickers_by_category[category].append(ticker)
+        category_invested[category] += invested
+        category_gain[category] += gain
+        category_market_value_kzt[category] += market_value_kzt
+        category_market_value_usd[category] += market_value_usd
+        full_invested += invested
+        full_gain += gain
+        full_market_value_kzt += market_value_kzt
+        full_market_value_usd += market_value_usd
 
-    lines = ["📊 *Мой портфель*\n"]
+    lines = [
+        "📊 *Мой портфель*\n",
+        "ℹ️ В этом отчёте отображается *нереализованная прибыль* по формуле:\n"
+        "(Текущая стоимость - Сумма вложений) / Сумма вложений × 100%\n"
+        "Вложения считаются по курсу на дату покупки, продажи уменьшают вложения по FIFO."
+    ]
 
-    # Сообщение о пропущенных валютах
-    filtered_missing = {cur for cur in missing_currencies if cur not in ("KZT", "USD")}
-    if filtered_missing:
-        lines.append(
-            "⚠️ *Внимание!* Нет курса для валют: " +
-            ", ".join(f"`{cur}`" for cur in sorted(filtered_missing)) +
-            ". Суммы по этим активам могут быть некорректны."
-        )
+    # Проверка: сумма по всем активам = общая стоимость портфеля
+    total_check = sum(t['market_value_kzt'] for t in ticker_data.values())
+    if abs(full_market_value_kzt - total_check) > 1:
+        lines.append(f"⚠️ [Проверка] Несовпадение итоговой стоимости портфеля: {full_market_value_kzt} vs {total_check}")
 
     for category in sorted(tickers_by_category):
-        category_total_kzt = category_totals_kzt[category]
-        category_total_usd = category_totals_usd[category]
+        category_total_kzt = category_market_value_kzt[category]
+        category_total_usd = category_market_value_usd[category]
         category_percent = (category_total_kzt / full_market_value_kzt) * 100 if full_market_value_kzt else 0
+        invested = category_invested[category]
+        gain = category_gain[category]
+        gain_percent = (gain / invested * 100) if invested else 0
 
-        # XIRR и прирост по категории
-        xirr_result = await xirr(category_cashflows[category])
-        inflow = sum(cf for d, cf in category_cashflows[category] if cf > 0)
-        outflow = -sum(cf for d, cf in category_cashflows[category] if cf < 0)
-        net_gain = inflow - outflow
-        gain_percent = (net_gain / outflow * 100) if outflow else 0
-
-        # Формат вывода по категории
         lines.append(f"📁 {category} - {category_percent:.1f}%")
-        lines.append(f"{category_total_kzt:,.2f} ₸ | {category_total_usd:,.2f} $ | " +
-                     (f"📈 {xirr_result * 100:+.2f}%" if xirr_result else f"📉 {gain_percent:+.2f}%"))
+        lines.append(f"{category_total_kzt:,.2f} ₸ | {category_total_usd:,.2f} $ | 📈 {gain_percent:+.2f}%")
 
-        for ticker in sorted(tickers_by_category[category], key=lambda t: ticker_data[t]["total_kzt"], reverse=True):
+        for ticker in sorted(tickers_by_category[category], key=lambda t: ticker_data[t]["market_value_kzt"], reverse=True):
             t = ticker_data[ticker]
-            percent = (t["total_kzt"] / category_total_kzt) * 100 if category_total_kzt else 0
-            holding_days = (today - t["earliest"]).days if t["earliest"] else "?"
-            gain = t["current_price"] - t["avg_price"]
-            gain_sign = "📈" if gain >= 0 else "📉"
-            gain_amount = gain * t["qty"]
-            gain_percent_ticker = (gain / t["avg_price"]) * 100 if t["avg_price"] else 0
-
-            # Красивое выравнивание по валютам
-            value_str = f"{t['total_kzt']:,.2f} ₸ | {t['total_usd']:,.2f} $"
-
+            percent = (t["market_value_kzt"] / category_total_kzt) * 100 if category_total_kzt else 0
+            gain_sign = "📈" if t["gain"] >= 0 else "📉"
             lines.append(
                 f"`{ticker}` — {percent:.1f}%"
             )
             lines.append(
-                f"{t['qty']} шт | {value_str}"
+                f"{t['qty']} шт | {t['market_value_kzt']:,.2f} ₸ | {t['market_value_usd']:,.2f} $"
             )
             lines.append(
-                f"{gain_sign} {gain_amount:,.0f} ({gain_percent_ticker:+.1f}%) за {holding_days} дн."
+                f"{gain_sign} {t['gain']:,.0f} ({t['gain_percent']:+.1f}%)"
             )
             lines.append("")  # пустая строка между активами
 
-    if full_cash_flows:
-        # Итоговый XIRR теперь считается по всем покупкам/продажам и стоимости портфеля
-        xirr_result = await xirr(full_cash_flows)
-        inflow = sum(cf for d, cf in full_cash_flows if cf > 0)
-        outflow = -sum(cf for d, cf in full_cash_flows if cf < 0)
-        net_gain = inflow - outflow
-        gain_str = f"{net_gain:,.0f} ₸"
-        gain_str_usd = f"{net_gain / get_rate('USD'):,.0f} $"
-        xirr_str = f"{xirr_result * 100:+.2f}%" if xirr_result else "н/д"
-        lines.append(
-            f"📈 *Итог XIRR по портфелю:* {xirr_str} | {gain_str} | {gain_str_usd}"
-        )
-        lines.append(
-            f"*Общая стоимость портфеля:* {full_market_value_kzt:,.2f} ₸ | {full_market_value_usd:,.2f} $"
-        )
-    else:
-        lines.append("⚠️ *Недостаточно данных для расчета XIRR.*")
+    # Итог по портфелю
+    total_gain_percent = (full_gain / full_invested * 100) if full_invested else 0
+    lines.append(
+        f"📈 *Итог по портфелю:* {total_gain_percent:+.2f}% | {full_gain:,.0f} ₸ | {full_gain / get_rate_today('USD'):,.0f} $"
+    )
+    lines.append(
+        f"*Общая стоимость портфеля:* {full_market_value_kzt:,.2f} ₸ | {full_market_value_usd:,.2f} $"
+    )
 
     return "\n".join(lines)

@@ -15,16 +15,16 @@ async def get_isin_country(ticker: str, exchange: str) -> str:
     print(f"[LOG] ISIN для {ticker}: {code}")
     return code or ""
 
-async def fetch_transactions_for_year(year: int):
-    print(f"[LOG] Загружаем транзакции за {year}")
+async def fetch_transactions_for_year(year: int, user_id: int):
+    print(f"[LOG] Загружаем транзакции за {year} для user_id={user_id}")
     conn = await connect_db()
     start = datetime(year, 1, 1).date()
     end = datetime(year, 12, 31).date()
     rows = await conn.fetch(
         "SELECT id, ticker, qty, price, date, exchange FROM transactions "
-        "WHERE to_date(date, 'DD-MM-YYYY') >= $1 AND to_date(date, 'DD-MM-YYYY') <= $2 "
+        "WHERE to_date(date, 'DD-MM-YYYY') >= $1 AND to_date(date, 'DD-MM-YYYY') <= $2 AND user_id = $3 "
         "ORDER BY to_date(date, 'DD-MM-YYYY'), id",
-        start, end
+        start, end, user_id
     )
     await conn.close()
     print(f"[LOG] Загружено {len(rows)} транзакций")
@@ -112,9 +112,9 @@ async def calc_tax_sheet(fifo_rows):
     print(f"[LOG] В налоговом листе {len(tax_rows)} строк")
     return tax_rows
 
-async def export_taxes_excel(year: int, filename: str = None):
-    print(f"[LOG] Начинаем экспорт налогового отчета за {year}")
-    transactions = await fetch_transactions_for_year(year)
+async def export_taxes_excel(year: int, user_id: int, filename: str = None):
+    print(f"[LOG] Начинаем экспорт налогового отчета за {year} для user_id={user_id}")
+    transactions = await fetch_transactions_for_year(year, user_id)
     for tx in transactions:
         tx['isin'] = await get_isin_country(tx['ticker'], tx['exchange'])
     fifo_rows = fifo_match(transactions)
@@ -129,7 +129,7 @@ async def export_taxes_excel(year: int, filename: str = None):
         'profit', 'currency_exchange_rate', 'sum_sell_in_KZT', 'tax'
     ])
     if not filename:
-        filename = f"tax_report_{year}.xlsx"
+        filename = f"tax_report_{year}_{user_id}.xlsx"
     with pd.ExcelWriter(filename) as writer:
         df.to_excel(writer, sheet_name="transactions", index=False)
         df_tax.to_excel(writer, sheet_name="taxes", index=False)
@@ -137,4 +137,4 @@ async def export_taxes_excel(year: int, filename: str = None):
     return filename
 
 # Пример вызова:
-# await export_taxes_excel(year=2024)
+# await export_taxes_excel(year=2024, user_id=123)

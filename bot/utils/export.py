@@ -9,10 +9,12 @@ from bot.utils.parser import get_price_kase, get_price_from_yahoo
 
 async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
+    user_id = user.id
 
     conn = await connect_db()
-    portfolio = await conn.fetch("SELECT ticker, category, currency FROM portfolio")
-    transactions = await conn.fetch("SELECT * FROM transactions ORDER BY date DESC")
+    # Фильтруем только по user_id
+    portfolio = await conn.fetch("SELECT ticker, category, currency FROM portfolio WHERE user_id = $1", user_id)
+    transactions = await conn.fetch("SELECT * FROM transactions WHERE user_id = $1 ORDER BY date DESC", user_id)
     await conn.close()
 
     df_portfolio = pd.DataFrame(portfolio, columns=["ticker", "category", "currency"])
@@ -27,7 +29,7 @@ async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     for ticker in tickers:
         price = await get_price_kase(ticker)
         if price is None:
-            price = await get_price_from_yahoo(ticker)  # исправлено: добавлен await
+            price = await get_price_from_yahoo(ticker)
         latest_prices.append(round(price or 0, 2))
 
     df_grouped["Цена"] = latest_prices
@@ -37,7 +39,7 @@ async def export_to_excel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     df_grouped["Δ%"] = ((df_grouped["Δ₸"] / df_grouped["Инвестировано"]) * 100).round(2)
 
     total_value = df_grouped["Общая"].sum()
-    df_grouped["% от портфеля"] = ((df_grouped["Общая"] / total_value) * 100).round(2)
+    df_grouped["% от портфеля"] = ((df_grouped["Общая"] / total_value) * 100).round(2) if total_value else 0
 
     df_summary = df_grouped[
         ["ticker", "Кол-во", "Цена", "Общая", "% от портфеля", "Δ%", "Δ₸"]

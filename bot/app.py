@@ -6,7 +6,7 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler,
-    CommandHandler, CallbackQueryHandler, filters
+    CommandHandler, CallbackQueryHandler, ConversationHandler, filters
 )
 
 from bot.handlers.deal import handle_deal, choose_category
@@ -15,6 +15,9 @@ from bot.utils.formatter import send_markdown
 from bot.db import connect_db
 from bot.utils.export import export_to_excel
 from bot.handlers.taxes import export_taxes_excel
+from bot.handlers.user import (
+    is_registered, start_registration, ask_name, ask_timezone, ask_custom_timezone, finish_registration
+)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -27,15 +30,48 @@ menu_keyboard = [
 ]
 reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
+# Этапы регистрации
+ASK_NAME, ASK_TIMEZONE, ASK_CUSTOM_TIMEZONE = range(3)
+
+# ConversationHandler для регистрации (без entry_points!)
+registration_conv_handler = ConversationHandler(
+    entry_points=[],  # теперь пусто!
+    states={
+        ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+        ASK_TIMEZONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_timezone)],
+        ASK_CUSTOM_TIMEZONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_custom_timezone)],
+    },
+    fallbacks=[],
+)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Выберите действие:", reply_markup=reply_markup)
+    user_id = update.effective_user.id
+    # Проверяем регистрацию пользователя
+    if await is_registered(user_id):
+        await update.message.reply_text(
+            "👋 Добро пожаловать! Выберите действие из меню ниже:",
+            reply_markup=reply_markup
+        )
+        return
+    # Если не зарегистрирован — запускаем регистрацию
+    return await start_registration(update, context)
 
+# После успешной регистрации показываем меню (вызывается из finish_registration)
+async def show_menu_after_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🎉 Регистрация завершена! Теперь вы можете пользоваться всеми возможностями бота.\n\n"
+        "Выберите действие из меню ниже:",
+        reply_markup=reply_markup
+    )
 
 async def show_all_deals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     conn = await connect_db()
-    rows = await conn.fetch("SELECT * FROM transactions ORDER BY date DESC")
-    await conn.close()  
+    # Показываем только сделки текущего пользователя
+    rows = await conn.fetch(
+        "SELECT * FROM transactions WHERE user_id = $1 ORDER BY date DESC", user_id
+    )
+    await conn.close()
 
     if not rows:
         await update.message.reply_text("📭 Сделок пока нет.")
@@ -47,7 +83,6 @@ async def show_all_deals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await update.message.reply_text(text, parse_mode="Markdown")
 
-
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
@@ -55,7 +90,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("input_mode", None)
 
         if text == "📊 Мой портфель":
-            summary = await summarize_portfolio()
+            summary = await summarize_portfolio(update, context)
             await update.message.reply_text(summary, parse_mode="Markdown")
         else:
             await update.message.reply_text("🔔 Раздел в разработке. Ожидайте обновления.")
@@ -101,11 +136,11 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("input_mode") == "deals":
         await handle_deal(update, context)
 
-
 # ▶️ Функция для запуска бота (используется в main.py)
 async def run_bot():
     nest_asyncio.apply()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(registration_conv_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("all_deals", show_all_deals))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))

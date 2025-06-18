@@ -21,6 +21,7 @@ def escape_md(text):
 
 async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        user_id = update.effective_user.id  # Получаем user_id
         message = update.message.text.strip()
         parts = message.split()
 
@@ -52,7 +53,8 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
         conn = await connect_db()
-        row = await conn.fetchrow("SELECT * FROM portfolio WHERE ticker = $1", ticker)
+        # Теперь ищем тикер только среди активов этого пользователя
+        row = await conn.fetchrow("SELECT * FROM portfolio WHERE ticker = $1 AND user_id = $2", ticker, user_id)
         await conn.close()
 
         if row is None:
@@ -62,7 +64,8 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "qty": qty,
                 "price": price,
                 "date": date,
-                "currency": currency
+                "currency": currency,
+                "user_id": user_id
             }
             await update.message.reply_text(f"🆕 Новый актив: {escape_md(ticker)}", parse_mode="MarkdownV2")
 
@@ -76,14 +79,15 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await ask_category(update)
             return
 
-        # Тикер уже есть: берем валюту и категорию из portfolio
+        # Тикер уже есть у этого пользователя: берем валюту и категорию из portfolio
         context.user_data["pending_deal"] = {
             "ticker": ticker,
             "qty": qty,
             "price": price,
             "date": date,
             "currency": row["currency"],
-            "category": row["category"]
+            "category": row["category"],
+            "user_id": user_id
         }
         await ask_exchange(update)
         return
@@ -169,6 +173,7 @@ async def finalize_deal(update_or_query, context):
         await _send_deal_message(update_or_query, "⚠️ Нет ожидающей сделки.", context)
         return
 
+    user_id = pending.get("user_id")
     ticker = pending.get("ticker")
     qty = pending.get("qty")
     price = pending.get("price")
@@ -178,7 +183,7 @@ async def finalize_deal(update_or_query, context):
     category = pending.get("category")
 
     # Проверяем, что все обязательные поля заполнены
-    if not all([ticker, qty is not None, price is not None, date, currency, exchange, category]):
+    if not all([ticker, qty is not None, price is not None, date, currency, exchange, category, user_id]):
         logging.warning(f"[DEAL] Не все параметры заполнены: {pending}")
         await _send_deal_message(update_or_query, "⚠️ Не все параметры сделки заполнены. Проверьте ввод.", context)
         return
@@ -193,25 +198,33 @@ async def finalize_deal(update_or_query, context):
 
     try:
         conn = await connect_db()
-        # Добавляем в portfolio если новый актив
+        # Добавляем в portfolio если новый актив для этого пользователя
         await conn.execute(
-            "INSERT INTO portfolio (ticker, category, currency) VALUES ($1, $2, $3) ON CONFLICT (ticker) DO NOTHING",
-            ticker, category, currency
+            "INSERT INTO portfolio (ticker, category, currency, user_id) VALUES ($1, $2, $3, $4) "
+            "ON CONFLICT (ticker, user_id) DO NOTHING",
+            ticker, category, currency, user_id
         )
+        # Добавляем сделку в transactions с user_id
         result = await conn.execute(
-            "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum, end_pr) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-            ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum_value, end_pr
+            "INSERT INTO transactions (ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum, end_pr, user_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            ticker, qty, price, date, exchange, br_fee, ex_fee, cp_fee, sum_value, end_pr, user_id
+        )
+        # Проверяем, что тикер теперь есть у пользователя
+        portfolio_row = await conn.fetchrow("SELECT * FROM portfolio WHERE ticker = $1 AND user_id = $2", ticker, user_id)
+        transaction_row = await conn.fetchrow(
+            "SELECT * FROM transactions WHERE ticker = $1 AND qty = $2 AND price = $3 AND date = $4 AND user_id = $5",
+            ticker, qty, price, date, user_id
         )
         await conn.close()
-        logging.info(f"[DEAL] Сделка успешно записана: {ticker}, qty={qty}, price={price}, date={date}, currency={currency}, exchange={exchange}, category={category}")
     except Exception as e:
         logging.error(f"[DEAL] Ошибка при добавлении сделки: {e}")
         await _send_deal_message(update_or_query, f"❌ Ошибка при добавлении сделки: {escape_md(str(e))}", context)
         return
 
-    # Проверяем, что запись действительно добавлена (result должен содержать INSERT ...)
-    if not (result and "INSERT" in result):
-        logging.error(f"[DEAL] Сделка не была записана в базу данных: {ticker}, qty={qty}, price={price}, date={date}, currency={currency}, exchange={exchange}, category={category}")
+    # Проверяем, что запись действительно добавлена и user_id совпадает
+    if not (result and "INSERT" in result and portfolio_row and transaction_row and portfolio_row["user_id"] == user_id and transaction_row["user_id"] == user_id):
+        logging.error(f"[DEAL] Сделка не была записана в базу данных: {ticker}, qty={qty}, price={price}, date={date}, currency={currency}, exchange={exchange}, category={category}, user_id={user_id}")
         await _send_deal_message(update_or_query, "❌ Сделка не была записана в базу данных.", context)
         return
 
