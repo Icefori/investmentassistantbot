@@ -2,7 +2,7 @@ import os
 import nest_asyncio
 import asyncio
 
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler,
@@ -18,17 +18,11 @@ from bot.handlers.taxes import export_taxes_excel
 from bot.handlers.user import (
     is_registered, start_registration, ask_name, ask_timezone, ask_custom_timezone, finish_registration
 )
+from bot.utils.menu import reply_markup  # <-- импортируем кнопки из menu.py
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("❌ BOT_TOKEN не найден. Установите переменную окружения.")
-
-menu_keyboard = [
-    ["📊 Мой портфель", "➕ Сделка"],
-    ["💰 Дивиденды", "📰 Новости"],
-    ["📤 Экспорт", "🧾 Расчет налогов"]
-]
-reply_markup = ReplyKeyboardMarkup(menu_keyboard, resize_keyboard=True)
 
 # Этапы регистрации
 ASK_NAME, ASK_TIMEZONE, ASK_CUSTOM_TIMEZONE = range(3)

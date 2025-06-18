@@ -13,8 +13,8 @@ TIMEZONE_MAP = {
     "Амстердам": "+1"
 }
 
-# Импортируем меню из app.py для повторного использования
-from bot.app import reply_markup
+# Импортируем меню из menu.py для повторного использования
+from bot.utils.menu import reply_markup
 
 async def is_registered(user_id: int) -> bool:
     conn = await connect_db()
