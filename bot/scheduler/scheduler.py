@@ -82,7 +82,7 @@ async def send_market_notifications_to_all_users(event: str):
 # Оставляем старую функцию для совместимости (если нужно вручную запускать для Europe/Amsterdam)
 async def send_market_open_notifications():
     now_ams = datetime.now(pytz.timezone("Europe/Amsterdam"))
-    messages = get_market_messages('open', now_ams)
+    messages = get_market_messages('open', now_ams, gmt_offset="+1")
     users = await get_all_users()
     for user_id in users:
         await bot.send_message(chat_id=user_id, text=messages[0], parse_mode="Markdown")
@@ -90,7 +90,7 @@ async def send_market_open_notifications():
 
 async def send_market_close_soon_notifications():
     now_ams = datetime.now(pytz.timezone("Europe/Amsterdam"))
-    messages = get_market_messages('close_soon', now_ams)
+    messages = get_market_messages('close_soon', now_ams, gmt_offset="+1")
     users = await get_all_users()
     for user_id in users:
         await bot.send_message(chat_id=user_id, text=messages[0], parse_mode="Markdown")
@@ -150,13 +150,15 @@ def start_scheduler(loop):
     )
     # Новый универсальный способ: каждые 30 минут проверяем для всех пользователей их локальное время
     scheduler.add_job(
-        lambda: asyncio.create_task(send_market_notifications_to_all_users('open')),
+        send_market_notifications_to_all_users,
+        args=['open'],
         trigger="cron",
         minute="0,30",
         day_of_week="mon-fri"
     )
     scheduler.add_job(
-        lambda: asyncio.create_task(send_market_notifications_to_all_users('close_soon')),
+        send_market_notifications_to_all_users,
+        args=['close_soon'],
         trigger="cron",
         minute="0,30",
         day_of_week="mon-fri"
