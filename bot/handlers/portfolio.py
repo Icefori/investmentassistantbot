@@ -4,6 +4,9 @@ from collections import defaultdict, deque
 from bot.db import connect_db
 from bot.scheduler.currency import fetch_rates_by_date
 
+# Импортируем функцию для inline-кнопок из portfolio_charts.py
+from bot.handlers.portfolio_charts import get_portfolio_inline_keyboard
+
 async def summarize_portfolio(update, context):
     """
     📊 *Мой портфель*
@@ -22,12 +25,13 @@ async def summarize_portfolio(update, context):
     await conn.close()
 
     if not portfolio_rows:
-        return (
+        await update.message.reply_text(
             "❗ Портфель пуст. Добавьте хотя бы одну сделку.\n\n"
             "ℹ️ В этом отчёте отображается *нереализованная прибыль* по формуле:\n"
             "(Текущая стоимость - Сумма вложений) / Сумма вложений × 100%\n"
             "Вложения считаются по курсу на дату покупки, продажи уменьшают вложения по FIFO."
         )
+        return
 
     today = date.today()
     ticker_data = {}
@@ -208,4 +212,12 @@ async def summarize_portfolio(update, context):
         f"*Общая стоимость портфеля:* {full_market_value_kzt:,.2f} ₸ | {full_market_value_usd:,.2f} $"
     )
 
-    return "\n".join(lines)
+    # --- Добавляем inline-кнопки под сообщением ---
+    categories = sorted(tickers_by_category.keys())
+    reply_markup = get_portfolio_inline_keyboard(categories)
+
+    await update.message.reply_text(
+        "\n".join(lines),
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
