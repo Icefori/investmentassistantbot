@@ -3,11 +3,9 @@ import matplotlib.pyplot as plt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.ext import ContextTypes, CallbackQueryHandler
 from datetime import datetime
-from bot.handlers.portfolio import summarize_portfolio
 from bot.db import connect_db
-from bot.handlers.portfolio import calculate_portfolio  # Импортируем один раз в начале
+from bot.handlers.portfolio import calculate_portfolio
 
-# --- Inline-кнопки для портфеля ---
 def get_portfolio_inline_keyboard(categories):
     keyboard = [
         [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="pie_all")],
@@ -17,15 +15,14 @@ def get_portfolio_inline_keyboard(categories):
     if categories:
         for cat in categories:
             keyboard.append([InlineKeyboardButton(f"Пай-чарт: {cat}", callback_data=f"pie_category|{cat}")])
-    keyboard.append([InlineKeyboardButton("🔙 Назад к портфелю", callback_data="back_to_portfolio")])
+    # Кнопка "Назад" теперь возвращает к начальному меню пай-чарт/график/категории
+    keyboard.append([InlineKeyboardButton("🔙 Назад к выбору графика", callback_data="back_to_charts_menu")])
     return InlineKeyboardMarkup(keyboard)
 
-# --- Получение расчетных данных портфеля ---
 async def get_portfolio_calculated(user_id):
     portfolio, portfolio_rows, tickers_by_category = await calculate_portfolio(user_id)
     return portfolio, portfolio_rows, tickers_by_category
 
-# --- Пай-чарт по всему портфелю ---
 async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     portfolio, portfolio_rows, _ = await get_portfolio_calculated(user_id)
@@ -58,7 +55,6 @@ async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT
         reply_markup=get_portfolio_inline_keyboard(sorted(portfolio["tickers_by_category"].keys()))
     )
 
-# --- Пай-чарт по категории ---
 async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
@@ -72,7 +68,8 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton(cat, callback_data=f"pie_category|{cat}")]
             for cat in categories
         ]
-        keyboard.append([InlineKeyboardButton("🔙 Назад к портфелю", callback_data="back_to_portfolio")])
+        # Кнопка "Назад" возвращает к начальному меню пай-чарт/график/категории
+        keyboard.append([InlineKeyboardButton("🔙 Назад к выбору графика", callback_data="back_to_charts_menu")])
         await update.callback_query.message.reply_text(
             "Пожалуйста, выберите категорию для построения пай-чарта:",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -107,7 +104,6 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
         reply_markup=get_portfolio_inline_keyboard(categories)
     )
 
-# --- График роста портфеля (общий) ---
 async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     portfolio, portfolio_rows, _ = await calculate_portfolio(user_id)
@@ -194,7 +190,6 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
         reply_markup=get_portfolio_inline_keyboard(sorted(portfolio["tickers_by_category"].keys()))
     )
 
-# --- Callback обработчик ---
 async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -209,11 +204,17 @@ async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT
         category = data.split("|", 1)[1]
         context.args = [category]
         await send_category_pie_chart(update, context)
-    elif data == "back_to_portfolio":
-        await summarize_portfolio(update, context)
+    elif data == "back_to_charts_menu":
+        # Показываем меню выбора графика (без текста портфеля)
+        user_id = update.effective_user.id
+        portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
+        categories = sorted(tickers_by_category.keys())
+        await update.callback_query.message.reply_text(
+            "Выберите, какой график или пай-чарт вы хотите посмотреть:",
+            reply_markup=get_portfolio_inline_keyboard(categories)
+        )
 
-# --- Для app.py ---
 portfolio_charts_handler = CallbackQueryHandler(
     portfolio_chart_callback,
-    pattern="^(pie_all|growth_all|pie_category|pie_category\|.+|back_to_portfolio)$"
+    pattern="^(pie_all|growth_all|pie_category|pie_category\|.+|back_to_charts_menu)$"
 )
