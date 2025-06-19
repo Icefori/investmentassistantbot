@@ -19,6 +19,7 @@ from bot.handlers.user import (
     is_registered, start_registration, ask_name, ask_timezone, ask_custom_timezone, finish_registration
 )
 from bot.utils.menu import reply_markup
+from bot.handlers.portfolio_charts import portfolio_charts_handler  # добавлено
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -74,8 +75,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("input_mode", None)
 
         if text == "📊 Мой портфель":
-            summary = await summarize_portfolio(update, context)
-            await update.message.reply_text(summary, parse_mode="Markdown")
+            await summarize_portfolio(update, context)
         else:
             await update.message.reply_text("🔔 Раздел в разработке. Ожидайте обновления.")
         return
@@ -131,6 +131,7 @@ async def run_bot():
     app.add_handler(CommandHandler("all_deals", show_all_deals))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     app.add_handler(CallbackQueryHandler(choose_category))  # опционально
+    app.add_handler(portfolio_charts_handler)  # добавлено
 
     print("✅ Бот запускается через polling...")
     await app.run_polling()

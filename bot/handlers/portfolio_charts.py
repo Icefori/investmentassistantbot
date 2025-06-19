@@ -2,132 +2,143 @@ import io
 import matplotlib.pyplot as plt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.ext import ContextTypes, CallbackQueryHandler
-from collections import defaultdict
-from datetime import datetime, date, timedelta
+from datetime import datetime
+from bot.handlers.portfolio import summarize_portfolio
 from bot.db import connect_db
-from bot.scheduler.currency import fetch_rates_by_date
+from bot.handlers.portfolio import calculate_portfolio  # Импортируем один раз в начале
 
-# --- Вспомогательные функции ---
+# --- Inline-кнопки для портфеля ---
+def get_portfolio_inline_keyboard(categories):
+    keyboard = [
+        [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="pie_all")],
+        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="growth_all")],
+        [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="pie_category")],
+    ]
+    if categories:
+        for cat in categories:
+            keyboard.append([InlineKeyboardButton(f"Пай-чарт: {cat}", callback_data=f"pie_category|{cat}")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад к портфелю", callback_data="back_to_portfolio")])
+    return InlineKeyboardMarkup(keyboard)
 
-async def get_portfolio_data(user_id):
-    conn = await connect_db()
-    portfolio_rows = await conn.fetch("SELECT * FROM portfolio WHERE user_id = $1", user_id)
-    await conn.close()
-    return portfolio_rows
-
-async def get_transactions(user_id):
-    conn = await connect_db()
-    txs = await conn.fetch("SELECT * FROM transactions WHERE user_id = $1 ORDER BY date", user_id)
-    await conn.close()
-    return txs
+# --- Получение расчетных данных портфеля ---
+async def get_portfolio_calculated(user_id):
+    portfolio, portfolio_rows, tickers_by_category = await calculate_portfolio(user_id)
+    return portfolio, portfolio_rows, tickers_by_category
 
 # --- Пай-чарт по всему портфелю ---
-
 async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    portfolio_rows = await get_portfolio_data(user_id)
+    portfolio, portfolio_rows, _ = await get_portfolio_calculated(user_id)
     if not portfolio_rows:
-        await update.callback_query.answer("Портфель пуст.")
+        await update.callback_query.answer("Портфель пуст. Добавьте сделки для отображения графика.", show_alert=True)
         return
 
-    # Суммируем стоимость по тикерам
     values = []
     labels = []
-    for row in portfolio_rows:
-        labels.append(row["ticker"])
-        values.append(row["market_value_kzt"])
+    for ticker, t in portfolio["ticker_data"].items():
+        labels.append(ticker)
+        values.append(t["market_value_kzt"])
+
+    if not values or sum(values) == 0:
+        await update.callback_query.answer("Нет данных для построения графика.", show_alert=True)
+        return
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.pie(values, labels=labels, autopct='%1.1f%%', startangle=140)
-    ax.set_title("Распределение активов по портфелю")
+    ax.set_title("Распределение активов по портфелю (₸)")
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
     plt.close(fig)
 
-    await update.callback_query.message.reply_photo(photo=InputFile(buf), caption="Пай-чарт по всему портфелю")
+    await update.callback_query.message.reply_photo(
+        photo=InputFile(buf),
+        caption="Пай-чарт по всему портфелю (₸)",
+        reply_markup=get_portfolio_inline_keyboard(sorted(portfolio["tickers_by_category"].keys()))
+    )
 
 # --- Пай-чарт по категории ---
-
 async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    portfolio_rows = await get_portfolio_data(user_id)
+    portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
     if not portfolio_rows:
-        await update.callback_query.answer("Портфель пуст.")
+        await update.callback_query.answer("Портфель пуст. Добавьте сделки для отображения графика.", show_alert=True)
         return
 
-    # Получаем список категорий
-    categories = sorted(set(row["category"] for row in portfolio_rows))
-    # Если категория не выбрана, показываем кнопки выбора
-    if len(context.args) == 0:
+    categories = sorted(tickers_by_category.keys())
+    if not context.args:
         keyboard = [
             [InlineKeyboardButton(cat, callback_data=f"pie_category|{cat}")]
             for cat in categories
         ]
+        keyboard.append([InlineKeyboardButton("🔙 Назад к портфелю", callback_data="back_to_portfolio")])
         await update.callback_query.message.reply_text(
-            "Выберите категорию для пай-чарта:",
+            "Пожалуйста, выберите категорию для построения пай-чарта:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
-    # Категория выбрана
     category = context.args[0]
-    filtered = [row for row in portfolio_rows if row["category"] == category]
+    filtered = [portfolio["ticker_data"][ticker] for ticker in tickers_by_category[category]]
     if not filtered:
-        await update.callback_query.answer("Нет активов в выбранной категории.")
+        await update.callback_query.answer("Нет активов в выбранной категории.", show_alert=True)
         return
 
-    labels = [row["ticker"] for row in filtered]
-    values = [row["market_value_kzt"] for row in filtered]
+    labels = [ticker for ticker in tickers_by_category[category]]
+    values = [t["market_value_kzt"] for t in filtered]
+
+    if not values or sum(values) == 0:
+        await update.callback_query.answer("Нет данных для построения графика.", show_alert=True)
+        return
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.pie(values, labels=labels, autopct='%1.1f%%', startangle=140)
-    ax.set_title(f"Распределение по категории: {category}")
+    ax.set_title(f"Распределение по категории: {category} (₸)")
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
     plt.close(fig)
 
-    await update.callback_query.message.reply_photo(photo=InputFile(buf), caption=f"Пай-чарт по категории: {category}")
+    await update.callback_query.message.reply_photo(
+        photo=InputFile(buf),
+        caption=f"Пай-чарт по категории: {category} (₸)",
+        reply_markup=get_portfolio_inline_keyboard(categories)
+    )
 
 # --- График роста портфеля (общий) ---
-
 async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    txs = await get_transactions(user_id)
-    if not txs:
-        await update.callback_query.answer("Нет данных по сделкам.")
+    portfolio, portfolio_rows, _ = await calculate_portfolio(user_id)
+    if not portfolio_rows:
+        await update.callback_query.answer("Нет данных по сделкам для построения графика.", show_alert=True)
         return
 
-    # Собираем даты
+    conn = await connect_db()
+    txs = await conn.fetch("SELECT * FROM transactions WHERE user_id = $1 ORDER BY date", user_id)
+    await conn.close()
+    if not txs:
+        await update.callback_query.answer("Нет данных по сделкам для построения графика.", show_alert=True)
+        return
+
     all_dates = sorted({datetime.strptime(tx["date"], "%d-%m-%Y").date() for tx in txs})
     if not all_dates:
-        await update.callback_query.answer("Нет данных по датам.")
+        await update.callback_query.answer("Нет данных по датам.", show_alert=True)
         return
 
-    # Получаем курсы валют на все даты
-    rates_by_date = {}
-    for d in all_dates:
-        rates, _ = await fetch_rates_by_date(datetime.combine(d, datetime.min.time()))
-        rates_by_date[d] = dict(rates)
-        rates_by_date[d]["KZT"] = 1.0
-        rates_by_date[d]["USD"] = rates_by_date[d].get("USD", 1.0)
+    from bot.scheduler.currency import fetch_rates_by_date
+    today_rates, _ = await fetch_rates_by_date(datetime.now())
+    usd_rate = dict(today_rates).get("USD", 1.0)
 
-    # Для каждой даты считаем стоимость портфеля (нереализованная прибыль)
     portfolio_values = []
-    prev_value = None
     for d in all_dates:
-        # Получаем все сделки до этой даты включительно
-        txs_up_to_date = [tx for tx in txs if datetime.strptime(tx["date"], "%d-%m-%Y").date() <= d]
-        # FIFO по тикерам
         from collections import defaultdict, deque
+        txs_up_to_date = [tx for tx in txs if datetime.strptime(tx["date"], "%d-%m-%Y").date() <= d]
         transactions_by_ticker = defaultdict(list)
         for tx in txs_up_to_date:
             transactions_by_ticker[tx["ticker"]].append(dict(tx))
-        invested = 0.0
-        market_value = 0.0
+        market_value_kzt = 0.0
         for ticker, ticker_txs in transactions_by_ticker.items():
             fifo = deque()
             total_qty = 0
@@ -135,10 +146,8 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
             for tx in ticker_txs:
                 qty = tx["qty"]
                 price = tx["price"]
-                tx_date = datetime.strptime(tx["date"], "%d-%m-%Y").date()
-                rate_on_date = rates_by_date[tx_date].get(currency, 1.0)
                 if qty > 0:
-                    fifo.append({"qty": qty, "price": price, "rate": rate_on_date, "currency": currency})
+                    fifo.append({"qty": qty, "price": price, "currency": currency})
                     total_qty += qty
                 elif qty < 0:
                     sell_qty = -qty
@@ -153,32 +162,24 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
                             fifo.popleft()
             if total_qty <= 0 or not fifo:
                 continue
-            # Считаем вложения по FIFO-остатку
             for lot in fifo:
                 if lot["currency"] == "KZT":
-                    invested += lot["price"] * lot["qty"]
+                    market_value_kzt += lot["price"] * lot["qty"]
                 elif lot["currency"] == "USD":
-                    invested += lot["price"] * lot["qty"] * lot["rate"]
+                    market_value_kzt += lot["price"] * lot["qty"] * usd_rate
                 else:
-                    invested += lot["price"] * lot["qty"] * lot["rate"]
-            # Для простоты: считаем рыночную стоимость = вложения (без реальной переоценки)
-            # Можно доработать, если есть API для исторических цен
-            market_value += invested  # или используйте актуальную цену, если есть
+                    market_value_kzt += lot["price"] * lot["qty"] * usd_rate  # fallback
+        portfolio_values.append(market_value_kzt)
 
-        # Прирост в %
-        if invested > 0:
-            gain_percent = ((market_value - invested) / invested) * 100
-        else:
-            gain_percent = 0
-        portfolio_values.append(gain_percent)
-        prev_value = market_value
+    if not portfolio_values or sum(portfolio_values) == 0:
+        await update.callback_query.answer("Недостаточно данных для построения графика.", show_alert=True)
+        return
 
-    # График
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(all_dates, portfolio_values, marker='o')
-    ax.set_title("Динамика прироста портфеля (%)")
+    ax.set_title("Динамика стоимости портфеля (₸)")
     ax.set_xlabel("Дата")
-    ax.set_ylabel("% прироста")
+    ax.set_ylabel("Стоимость, ₸")
     ax.grid(True)
     fig.autofmt_xdate()
 
@@ -187,21 +188,13 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
     buf.seek(0)
     plt.close(fig)
 
-    await update.callback_query.message.reply_photo(photo=InputFile(buf), caption="График прироста портфеля (%)")
-
-# --- Inline-кнопки для портфеля ---
-
-def get_portfolio_inline_keyboard(categories):
-    keyboard = [
-        [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="pie_all")],
-        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="growth_all")],
-        [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="pie_category")],
-        [InlineKeyboardButton("📈 График по категории", callback_data="growth_category")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    await update.callback_query.message.reply_photo(
+        photo=InputFile(buf),
+        caption="График динамики стоимости портфеля (₸)",
+        reply_markup=get_portfolio_inline_keyboard(sorted(portfolio["tickers_by_category"].keys()))
+    )
 
 # --- Callback обработчик ---
-
 async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -216,8 +209,11 @@ async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT
         category = data.split("|", 1)[1]
         context.args = [category]
         await send_category_pie_chart(update, context)
-    # growth_category можно реализовать аналогично пай-чарту по категории
+    elif data == "back_to_portfolio":
+        await summarize_portfolio(update, context)
 
 # --- Для app.py ---
-
-portfolio_charts_handler = CallbackQueryHandler(portfolio_chart_callback, pattern="^(pie_all|growth_all|pie_category|pie_category\|.+)$")
+portfolio_charts_handler = CallbackQueryHandler(
+    portfolio_chart_callback,
+    pattern="^(pie_all|growth_all|pie_category|pie_category\|.+|back_to_portfolio)$"
+)
