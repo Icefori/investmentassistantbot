@@ -1,16 +1,18 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
 from bot.db import connect_db
+import pytz
+from datetime import datetime
 
 ASK_NAME, ASK_TIMEZONE, ASK_CUSTOM_TIMEZONE = range(3)
 
 TIMEZONES = [
     "Астана", "Москва", "Амстердам", "Другая зона"
 ]
-TIMEZONE_MAP = {
-    "Астана": "+6",
-    "Москва": "+3",
-    "Амстердам": "+1"
+CITY_TZ = {
+    "Астана": "Asia/Almaty",
+    "Москва": "Europe/Moscow",
+    "Амстердам": "Europe/Amsterdam"
 }
 
 # Импортируем меню из menu.py для повторного использования
@@ -71,7 +73,13 @@ async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Будьте внимательны: используйте только цифры со знаком плюс или минус."
         )
         return ASK_CUSTOM_TIMEZONE
-    context.user_data["timezone"] = TIMEZONE_MAP[tz]
+    # Получаем актуальный GMT-офсет для выбранного города
+    tz_name = CITY_TZ[tz]
+    now = datetime.now(pytz.timezone(tz_name))
+    offset_hours = int(now.utcoffset().total_seconds() // 3600)
+    # Приводим к строке с нужным знаком
+    offset_str = f"{offset_hours:+d}"
+    context.user_data["timezone"] = offset_str
     return await finish_registration(update, context)
 
 async def ask_custom_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):

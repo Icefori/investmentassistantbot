@@ -58,20 +58,43 @@ def get_market_messages(event: str, now_local: datetime, gmt_offset: str):
                 grouped.setdefault(key_dt, []).append(market)
 
     for group in grouped.values():
+        # Формируем список строк с расписанием для каждой биржи в группе
+        schedule_lines = []
+        for m in group:
+            market_tz = pytz.timezone(m["tz"])
+            today = now_local.astimezone(market_tz).date()
+            open_dt_market = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=m["open"][0], minutes=m["open"][1]))
+            close_dt_market = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=m["close"][0], minutes=m["close"][1]))
+            open_dt_local = open_dt_market.astimezone(now_local.tzinfo)
+            close_dt_local = close_dt_market.astimezone(now_local.tzinfo)
+            open_str = open_dt_local.strftime("%H:%M")
+            close_str = close_dt_local.strftime("%H:%M")
+            schedule_lines.append(f"{m['emoji']} *{m['name']}* — {open_str}–{close_str}")
+
         names = " / ".join(f"{m['emoji']} *{m['name']}*" for m in group)
         if event == "open":
-            open_time = group[0]["open"]
-            close_time = group[0]["close"]
             messages.append(
                 f"{names} — открытие торгов!\n"
-                f"🟢 Биржа открыта с {open_time[0]:02}:{open_time[1]:02} до {close_time[0]:02}:{close_time[1]:02} (GMT{gmt_offset})\n"
+                f"🟢 Время работы бирж:\n" +
+                "\n".join(schedule_lines) +
+                f"\n(GMT{gmt_offset})\n"
                 f"Удачных сделок! 🚀"
             )
         elif event == "close_soon":
-            close_time = group[0]["close"]
+            # Для close_soon показываем только время закрытия
+            close_lines = []
+            for m in group:
+                market_tz = pytz.timezone(m["tz"])
+                today = now_local.astimezone(market_tz).date()
+                close_dt_market = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=m["close"][0], minutes=m["close"][1]))
+                close_dt_local = close_dt_market.astimezone(now_local.tzinfo)
+                close_str = close_dt_local.strftime("%H:%M")
+                close_lines.append(f"{m['emoji']} *{m['name']}* — {close_str}")
             messages.append(
                 f"{names} — до закрытия торгов остался 1 час!\n"
-                f"🔔 Биржа закроется в {close_time[0]:02}:{close_time[1]:02} (GMT{gmt_offset})\n"
+                f"🔔 Биржи закроются:\n" +
+                "\n".join(close_lines) +
+                f"\n(GMT{gmt_offset})\n"
                 f"Проверьте свои позиции и заявки! ⏳"
             )
     return messages

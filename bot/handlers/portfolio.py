@@ -6,17 +6,14 @@ from bot.scheduler.currency import fetch_rates_by_date
 
 # Удаляем импорт get_portfolio_inline_keyboard из portfolio_charts.py
 # Вместо этого определяем inline-кнопки прямо здесь (или импортируем из отдельного utils, если потребуется)
-def get_portfolio_inline_keyboard(categories):
+def get_portfolio_inline_keyboard():
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     keyboard = [
         [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="pie_all")],
-        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="growth_all")],
         [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="pie_category")],
+        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="growth_all")],
+        [InlineKeyboardButton("📈 График по категории", callback_data="growth_category")],
     ]
-    if categories:
-        for cat in categories:
-            keyboard.append([InlineKeyboardButton(f"Пай-чарт: {cat}", callback_data=f"pie_category|{cat}")])
-    keyboard.append([InlineKeyboardButton("🔙 Назад к портфелю", callback_data="back_to_portfolio")])
     return InlineKeyboardMarkup(keyboard)
 
 async def summarize_portfolio(update, context):
@@ -239,8 +236,7 @@ async def summarize_portfolio(update, context):
     )
 
     # --- Добавляем inline-кнопки под сообщением ---
-    categories = sorted(tickers_by_category.keys())
-    reply_markup = get_portfolio_inline_keyboard(categories)
+    reply_markup = get_portfolio_inline_keyboard()
 
     await status_msg.edit_text(
         "\n".join(lines),

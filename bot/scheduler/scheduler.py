@@ -60,68 +60,29 @@ async def send_market_notifications_to_all_users(event: str):
     now_utc = datetime.utcnow().replace(second=0, microsecond=0)
     for user_id, tz_str in users:
         try:
+            # Поддержка таймзон вида "+2", "-5", "+06", "-03"
             offset_hours = int(tz_str)
         except Exception:
             continue
-        now_local = now_utc + timedelta(hours=offset_hours)
+        # Получаем локальное время пользователя
+        user_local_time = now_utc + timedelta(hours=offset_hours)
         for market in MARKETS:
-            market_open = market["open"]
-            market_close = market["close"]
-            # Открытие
-            if event == "open" and now_local.hour == market_open[0] and now_local.minute == market_open[1]:
-                messages = get_market_messages('open', now_local, gmt_offset=tz_str)
-                for msg in messages:
-                    await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
-            # За час до закрытия
-            if event == "close_soon" and now_local.hour == (market_close[0] - 1) and now_local.minute == market_close[1]:
-                messages = get_market_messages('close_soon', now_local, gmt_offset=tz_str)
-                for msg in messages:
-                    await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+            market_open_hour, market_open_minute = market["open"]
+            market_close_hour, market_close_minute = market["close"]
+            # Проверяем только по времени пользователя!
+            if event == "open":
+                if user_local_time.hour == market_open_hour and user_local_time.minute == market_open_minute:
+                    messages = get_market_messages('open', user_local_time, gmt_offset=tz_str)
+                    for msg in messages:
+                        await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+            elif event == "close_soon":
+                # За 1 час до закрытия
+                close_soon_hour = market_close_hour - 1
+                if user_local_time.hour == close_soon_hour and user_local_time.minute == market_close_minute:
+                    messages = get_market_messages('close_soon', user_local_time, gmt_offset=tz_str)
+                    for msg in messages:
+                        await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
     print(f"✅ Market {event} уведомления отправлены всем пользователям")
-
-# Оставляем старую функцию для совместимости (если нужно вручную запускать для Europe/Amsterdam)
-async def send_market_open_notifications():
-    now_ams = datetime.now(pytz.timezone("Europe/Amsterdam"))
-    messages = get_market_messages('open', now_ams, gmt_offset="+1")
-    users = await get_all_users()
-    for user_id in users:
-        await bot.send_message(chat_id=user_id, text=messages[0], parse_mode="Markdown")
-    print("✅ Market open уведомления отправлены")
-
-async def send_market_close_soon_notifications():
-    now_ams = datetime.now(pytz.timezone("Europe/Amsterdam"))
-    messages = get_market_messages('close_soon', now_ams, gmt_offset="+1")
-    users = await get_all_users()
-    for user_id in users:
-        await bot.send_message(chat_id=user_id, text=messages[0], parse_mode="Markdown")
-    print("✅ Market close soon уведомления отправлены")
-
-def schedule_market_notifications(scheduler):
-    tz_ams = pytz.timezone("Europe/Amsterdam")
-    now = datetime.now(tz_ams)
-    today = now.date()
-    for market in MARKETS:
-        market_tz = pytz.timezone(market["tz"])
-        # Время открытия
-        open_dt = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=market["open"][0], minutes=market["open"][1]))
-        open_dt_ams = open_dt.astimezone(tz_ams)
-        if open_dt_ams > now:
-            scheduler.add_job(
-                send_market_open_notifications,
-                trigger="date",
-                run_date=open_dt_ams,
-                id=f"{market['name']}_open_{today}"
-            )
-        # За час до закрытия
-        close_dt = market_tz.localize(datetime.combine(today, datetime.min.time()) + timedelta(hours=market["close"][0], minutes=market["close"][1]))
-        close_soon_dt_ams = (close_dt - timedelta(hours=1)).astimezone(tz_ams)
-        if close_soon_dt_ams > now:
-            scheduler.add_job(
-                send_market_close_soon_notifications,
-                trigger="date",
-                run_date=close_soon_dt_ams,
-                id=f"{market['name']}_close_soon_{today}"
-            )
 
 def start_scheduler(loop):
     tz = pytz.timezone("Europe/Amsterdam")
@@ -140,14 +101,6 @@ def start_scheduler(loop):
         minute=1,
         day_of_week="mon-fri"
     )
-    # Каждый день в 00:01 пересчитываем расписание уведомлений на сегодня (старый вариант)
-    scheduler.add_job(
-        lambda: schedule_market_notifications(scheduler),
-        trigger="cron",
-        hour=0,
-        minute=1,
-        day_of_week="mon-fri"
-    )
     # Новый универсальный способ: каждые 30 минут проверяем для всех пользователей их локальное время
     scheduler.add_job(
         send_market_notifications_to_all_users,
@@ -163,8 +116,6 @@ def start_scheduler(loop):
         minute="0,30",
         day_of_week="mon-fri"
     )
-    # Первый запуск при старте
-    schedule_market_notifications(scheduler)
     scheduler.start()
     print("🕗 Планировщик запущен")
 
@@ -179,8 +130,8 @@ async def run_scheduler():
         if arg == "currency":
             await send_daily_currency_update()
         elif arg == "market":
-            await send_market_open_notifications()
+            await send_market_notifications_to_all_users('open')
         elif arg == "all":
             await send_daily_currency_update()
-            await send_market_open_notifications()
-    await asyncio.Event().wait()  # Держим event loop
+            await send_market_notifications_to_all_users('open')
+    await asyncio.Event().wait()  # Держим event
