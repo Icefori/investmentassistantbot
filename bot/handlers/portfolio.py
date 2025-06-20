@@ -9,10 +9,10 @@ from bot.scheduler.currency import fetch_rates_by_date
 def get_portfolio_inline_keyboard():
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     keyboard = [
-        [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="pie_all")],
-        [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="pie_category")],
-        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="growth_all")],
-        [InlineKeyboardButton("📈 График по категории", callback_data="growth_category")],
+        [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="chart_pie_all")],
+        [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="chart_pie_category")],
+        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="chart_growth_all")],
+        [InlineKeyboardButton("📈 График по категории", callback_data="chart_growth_category")],
     ]
     return InlineKeyboardMarkup(keyboard)
 

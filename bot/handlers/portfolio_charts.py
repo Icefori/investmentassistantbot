@@ -5,6 +5,9 @@ from telegram.ext import ContextTypes, CallbackQueryHandler
 from datetime import datetime
 from bot.db import connect_db
 from bot.handlers.portfolio import calculate_portfolio
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_charts_main_keyboard():
     return InlineKeyboardMarkup([
@@ -287,6 +290,7 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
 async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
+    logger.info(f"Пай-чарт callback: user_id={update.effective_user.id}, data={data}")
     if data == "chart_pie_all":
         await send_portfolio_pie_chart(update, context)
     elif data == "chart_growth_all":

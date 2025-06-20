@@ -60,28 +60,26 @@ async def send_market_notifications_to_all_users(event: str):
     now_utc = datetime.utcnow().replace(second=0, microsecond=0)
     for user_id, tz_str in users:
         try:
-            # Поддержка таймзон вида "+2", "-5", "+06", "-03"
-            offset_hours = int(tz_str)
+            user_tz = pytz.timezone(tz_str)
         except Exception:
+            print(f"❗ Не удалось определить таймзону для пользователя {user_id}: {tz_str}")
             continue
-        # Получаем локальное время пользователя
-        user_local_time = now_utc + timedelta(hours=offset_hours)
+        now_local = datetime.now(user_tz).replace(second=0, microsecond=0)
+        offset_sec = user_tz.utcoffset(now_local).total_seconds()
+        gmt_offset = f"{int(offset_sec // 3600):+d}"
+
         for market in MARKETS:
             market_open_hour, market_open_minute = market["open"]
             market_close_hour, market_close_minute = market["close"]
             # Проверяем только по времени пользователя!
             if event == "open":
-                if user_local_time.hour == market_open_hour and user_local_time.minute == market_open_minute:
-                    messages = get_market_messages('open', user_local_time, gmt_offset=tz_str)
-                    for msg in messages:
-                        await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+                messages = get_market_messages('open', user_tz, gmt_offset)
+                for msg in messages:
+                    await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
             elif event == "close_soon":
-                # За 1 час до закрытия
-                close_soon_hour = market_close_hour - 1
-                if user_local_time.hour == close_soon_hour and user_local_time.minute == market_close_minute:
-                    messages = get_market_messages('close_soon', user_local_time, gmt_offset=tz_str)
-                    for msg in messages:
-                        await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
+                messages = get_market_messages('close_soon', user_tz, gmt_offset)
+                for msg in messages:
+                    await bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
     print(f"✅ Market {event} уведомления отправлены всем пользователям")
 
 def start_scheduler(loop):

@@ -21,7 +21,7 @@ CITY_TZ = {
 
 from bot.utils.menu import reply_markup
 
-GEONAMES_USERNAME = "demo"  # замените на свой username на geonames.org
+GEONAMES_USERNAME = "icefori"  # замените на свой username на geonames.org
 
 async def is_registered(user_id: int) -> bool:
     conn = await connect_db()
@@ -73,8 +73,8 @@ async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ASK_TIMEZONE
     if tz == "Другая зона":
         await update.message.reply_text(
-            "Пожалуйста, введите ваш город или таймзону (например: Кокшетау, Europe/Berlin, Asia/Almaty, America/New_York).\n"
-            "Список доступных таймзон: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+            "Пожалуйста, введите город, в котором вы живёте (например: Кокшетау, Караганда, Берлин, Нью-Йорк) или ближайший крупный город/столицу.\n"
+            "Я автоматически определю ваш часовой пояс для корректных уведомлений."
         )
         return ASK_CUSTOM_TIMEZONE
     tz_name = CITY_TZ[tz]
