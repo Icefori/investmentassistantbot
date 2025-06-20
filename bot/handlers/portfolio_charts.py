@@ -8,18 +8,18 @@ from bot.handlers.portfolio import calculate_portfolio
 
 def get_charts_main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="pie_all")],
-        [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="pie_category")],
-        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="growth_all")],
-        [InlineKeyboardButton("📈 График по категории", callback_data="growth_category")],
+        [InlineKeyboardButton("📊 Пай-чарт (весь портфель)", callback_data="chart_pie_all")],
+        [InlineKeyboardButton("📊 Пай-чарт по категории", callback_data="chart_pie_category")],
+        [InlineKeyboardButton("📈 График (весь портфель)", callback_data="chart_growth_all")],
+        [InlineKeyboardButton("📈 График по категории", callback_data="chart_growth_category")],
     ])
 
 def get_categories_keyboard(categories, prefix):
     keyboard = [
-        [InlineKeyboardButton(cat, callback_data=f"{prefix}|{cat}")]
+        [InlineKeyboardButton(cat, callback_data=f"chart_{prefix}|{cat}")]
         for cat in categories
     ]
-    keyboard.append([InlineKeyboardButton("🔙 Назад к выбору графика", callback_data="back_to_charts_menu")])
+    keyboard.append([InlineKeyboardButton("🔙 Назад к выбору графика", callback_data="chart_back_to_charts_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 async def get_portfolio_calculated(user_id):
@@ -287,21 +287,21 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
 async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    if data == "pie_all":
+    if data == "chart_pie_all":
         await send_portfolio_pie_chart(update, context)
-    elif data == "growth_all":
+    elif data == "chart_growth_all":
         await send_portfolio_growth_chart(update, context)
-    elif data == "pie_category":
+    elif data == "chart_pie_category":
         await send_category_pie_chart(update, context)
-    elif data.startswith("pie_category|"):
+    elif data.startswith("chart_pie_category|"):
         category = data.split("|", 1)[1]
         await send_category_pie_chart(update, context, category=category)
-    elif data == "growth_category":
+    elif data == "chart_growth_category":
         await send_category_growth_chart(update, context)
-    elif data.startswith("growth_category|"):
+    elif data.startswith("chart_growth_category|"):
         category = data.split("|", 1)[1]
         await send_category_growth_chart(update, context, category=category)
-    elif data == "back_to_charts_menu":
+    elif data == "chart_back_to_charts_menu":
         user_id = update.effective_user.id
         portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
         categories = sorted(tickers_by_category.keys())
@@ -312,5 +312,5 @@ async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT
 
 portfolio_charts_handler = CallbackQueryHandler(
     portfolio_chart_callback,
-    pattern=r"^(pie_all|growth_all|pie_category|pie_category\|.+|growth_category|growth_category\|.+|back_to_charts_menu)$"
+    pattern=r"^chart_"
 )

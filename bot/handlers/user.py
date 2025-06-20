@@ -3,6 +3,10 @@ from telegram.ext import ContextTypes, ConversationHandler
 from bot.db import connect_db
 import pytz
 from datetime import datetime
+import re
+import aiohttp
+
+from geopy.geocoders import Nominatim
 
 ASK_NAME, ASK_TIMEZONE, ASK_CUSTOM_TIMEZONE = range(3)
 
@@ -15,8 +19,9 @@ CITY_TZ = {
     "Амстердам": "Europe/Amsterdam"
 }
 
-# Импортируем меню из menu.py для повторного использования
 from bot.utils.menu import reply_markup
+
+GEONAMES_USERNAME = "demo"  # замените на свой username на geonames.org
 
 async def is_registered(user_id: int) -> bool:
     conn = await connect_db()
@@ -30,7 +35,6 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = await conn.fetchrow("SELECT 1 FROM users WHERE user_id = $1", user_id)
     await conn.close()
     if user:
-        # Уже зарегистрирован — показываем меню
         await update.message.reply_text(
             "👋 Добро пожаловать! Выберите действие из меню ниже:",
             reply_markup=reply_markup
@@ -45,16 +49,16 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text.strip()
-    if not name or len(name) > 30:
+    if not name or len(name) < 3 or len(name) > 30 or not re.match(r"^[A-Za-zА-Яа-яЁё\s\-]+$", name):
         await update.message.reply_text(
-            "Пожалуйста, введите корректное имя (до 30 символов), чтобы я мог обращаться к вам лично 😊"
+            "Пожалуйста, введите корректное имя (от 3 до 30 букв, без цифр и специальных символов)."
         )
         return ASK_NAME
     context.user_data["name"] = name
     kb = [[tz] for tz in TIMEZONES]
     await update.message.reply_text(
         f"Спасибо, {name}! 🙏\n\n"
-        "Теперь выберите ваш часовой пояс для корректной работы напоминаний и уведомлений.\n"
+        "Теперь выберите ваш город/часовой пояс для корректной работы напоминаний и уведомлений.\n"
         "Пожалуйста, выберите один из вариантов ниже или выберите 'Другая зона', если вашего города нет в списке:",
         reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True)
     )
@@ -64,33 +68,50 @@ async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz = update.message.text.strip()
     if tz not in TIMEZONES:
         await update.message.reply_text(
-            "Пожалуйста, выберите часовой пояс из предложенного списка или выберите 'Другая зона'."
+            "Пожалуйста, выберите город/часовой пояс из предложенного списка или выберите 'Другая зона'."
         )
         return ASK_TIMEZONE
     if tz == "Другая зона":
         await update.message.reply_text(
-            "Пожалуйста, укажите ваш часовой пояс в формате GMT, например: +5 или -11.\n"
-            "Будьте внимательны: используйте только цифры со знаком плюс или минус."
+            "Пожалуйста, введите ваш город или таймзону (например: Кокшетау, Europe/Berlin, Asia/Almaty, America/New_York).\n"
+            "Список доступных таймзон: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
         )
         return ASK_CUSTOM_TIMEZONE
-    # Получаем актуальный GMT-офсет для выбранного города
     tz_name = CITY_TZ[tz]
-    now = datetime.now(pytz.timezone(tz_name))
-    offset_hours = int(now.utcoffset().total_seconds() // 3600)
-    # Приводим к строке с нужным знаком
-    offset_str = f"{offset_hours:+d}"
-    context.user_data["timezone"] = offset_str
+    context.user_data["timezone"] = tz_name
     return await finish_registration(update, context)
 
 async def ask_custom_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tz = update.message.text.strip()
-    if not (tz.startswith("+") or tz.startswith("-")) or not tz[1:].isdigit():
-        await update.message.reply_text(
-            "Пожалуйста, введите корректный часовой пояс, например: +5 или -11."
-        )
-        return ASK_CUSTOM_TIMEZONE
-    context.user_data["timezone"] = tz
-    return await finish_registration(update, context)
+    tz_input = update.message.text.strip()
+    # Сначала пробуем как pytz-таймзону
+    try:
+        pytz.timezone(tz_input)
+        context.user_data["timezone"] = tz_input
+        return await finish_registration(update, context)
+    except Exception:
+        pass
+
+    # Если не pytz, пробуем найти по названию города через geopy + GeoNames API
+    geolocator = Nominatim(user_agent="investmentbot")
+    try:
+        location = geolocator.geocode(tz_input, language="en")
+        if location:
+            lat, lng = location.latitude, location.longitude
+            url = f"http://api.geonames.org/timezoneJSON?lat={lat}&lng={lng}&username={GEONAMES_USERNAME}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+                    tz_found = data.get("timezoneId")
+                    if tz_found:
+                        context.user_data["timezone"] = tz_found
+                        return await finish_registration(update, context)
+    except Exception:
+        pass
+
+    await update.message.reply_text(
+        "❗ Не удалось распознать таймзону или город. Введите корректное название, например: Кокшетау, Europe/Berlin, Asia/Almaty, America/New_York."
+    )
+    return ASK_CUSTOM_TIMEZONE
 
 async def finish_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -105,7 +126,7 @@ async def finish_registration(update: Update, context: ContextTypes.DEFAULT_TYPE
     await conn.close()
     await update.message.reply_text(
         f"🎉 Спасибо, {name}! Вы успешно зарегистрированы.\n"
-        f"Ваш выбранный часовой пояс: GMT{timezone}\n\n"
+        f"Ваш выбранный часовой пояс: {timezone}\n\n"
         "Теперь вы можете:\n"
         "• Добавлять сделки (кнопка ➕ Сделка)\n"
         "• Смотреть портфель (кнопка 📊 Мой портфель)\n"

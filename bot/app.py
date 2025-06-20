@@ -129,9 +129,11 @@ async def run_bot():
     # Обработка /start для уже зарегистрированных
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("all_deals", show_all_deals))
+    # ВАЖНО: Сначала добавляем обработчик callback-кнопок пай-чартов!
+    app.add_handler(portfolio_charts_handler)  # <-- перемещено выше!
+    # Затем обработчик текстовых сообщений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     app.add_handler(CallbackQueryHandler(choose_category))  # опционально
-    app.add_handler(portfolio_charts_handler)  # добавлено
 
     print("✅ Бот запускается через polling...")
     await app.run_polling()

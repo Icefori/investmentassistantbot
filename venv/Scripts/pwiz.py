@@ -1,4 +1,4 @@
-#!C:\Users\Icefori\Documents\telegrambot_investmentbot\venv\Scripts\python.exe
+#!C:\Users\Icefori\Documents\07 My apps\telegrambot_investmentbot\venv\Scripts\python.exe
 
 import datetime
 import os
