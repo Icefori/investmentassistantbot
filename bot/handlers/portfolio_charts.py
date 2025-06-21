@@ -5,7 +5,9 @@ from telegram.ext import ContextTypes, CallbackQueryHandler
 from datetime import datetime, timedelta
 from bot.db import connect_db
 from bot.handlers.portfolio import calculate_portfolio
+from bot.utils.parser import get_price_kase, get_price_from_yahoo
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,6 @@ def get_charts_main_keyboard():
     ])
 
 def get_categories_keyboard(categories, prefix):
-    # prefix: "pie_category" или "growth_category"
     keyboard = [
         [InlineKeyboardButton(cat, callback_data=f"chart_{prefix}|{cat}")]
         for cat in categories
@@ -41,6 +42,25 @@ async def get_portfolio_calculated(user_id):
     portfolio = result
     tickers_by_category = result.get("tickers_by_category", {})
     return portfolio, None, tickers_by_category
+
+async def get_market_price_on_date(ticker: str, date: datetime) -> float | None:
+    """
+    Получить цену тикера на дату date.
+    Для тикеров KASE пробуем get_price_kase, для остальных — get_price_from_yahoo.
+    """
+    # Можно добавить кэширование, чтобы не дергать API слишком часто
+    # Для примера: если тикер заканчивается на .KZ, считаем KASE
+    try:
+        if ticker.endswith(".KZ"):
+            price = await get_price_kase(ticker.replace(".KZ", ""))
+            if price:
+                return price
+        # Для остальных — Yahoo
+        price = await get_price_from_yahoo(ticker)
+        return price
+    except Exception as ex:
+        logger.warning(f"Ошибка получения цены для {ticker} на {date}: {ex}")
+        return None
 
 async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
@@ -99,7 +119,6 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
 
     categories = sorted(tickers_by_category.keys())
     if not category:
-        # Показываем меню категорий для пай-чарта
         await update.callback_query.message.reply_text(
             "Пожалуйста, выберите категорию для построения пай-чарта:",
             reply_markup=get_categories_keyboard(categories, "pie_category")
@@ -143,7 +162,6 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
     )
 
 # --- TWR (Time-Weighted Return) график для портфеля и категории ---
-
 async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     user_id = update.effective_user.id
@@ -184,7 +202,7 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
 
     from collections import defaultdict, deque
 
-    # TWR расчет
+    # TWR расчет с учетом рыночных цен
     twr_values = []
     prev_value = None
     prev_date = None
@@ -196,6 +214,12 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
         for tx in txs_up_to_date:
             transactions_by_ticker[tx["ticker"]].append(dict(tx))
         market_value_kzt = 0.0
+        # Получаем актуальные цены для всех тикеров на дату d
+        price_tasks = []
+        for ticker in transactions_by_ticker.keys():
+            price_tasks.append(get_market_price_on_date(ticker, d))
+        prices = await asyncio.gather(*price_tasks)
+        ticker_prices = dict(zip(transactions_by_ticker.keys(), prices))
         for ticker, ticker_txs in transactions_by_ticker.items():
             fifo = deque()
             currency = ticker_currency.get(ticker, "KZT")
@@ -219,7 +243,11 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
             for lot in fifo:
                 lot_currency = lot.get("currency", "KZT")
                 lot_rate_now = rates_by_date[d].get(lot_currency, 1.0)
-                market_value_kzt += lot["price"] * lot["qty"] * lot_rate_now
+                # Используем актуальную цену!
+                current_price = ticker_prices.get(ticker)
+                if current_price is None:
+                    current_price = lot["price"]  # fallback
+                market_value_kzt += current_price * lot["qty"] * lot_rate_now
 
         # Определяем притоки/оттоки за период
         if i == 0:
@@ -229,7 +257,6 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
             prev_date = d
             continue
 
-        # Все сделки между prev_date (не включая) и d (включительно)
         period_txs = [tx for tx in txs if prev_date < datetime.strptime(tx["date"], "%d-%m-%Y").date() <= d]
         cash_flow = 0.0
         for tx in period_txs:
@@ -240,7 +267,6 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
             rate = rates_by_date[d].get(currency, 1.0)
             cash_flow += price * qty * rate  # Покупка: +, Продажа: -
 
-        # TWR за период
         denominator = prev_value + cash_flow
         if denominator == 0:
             r = 0
@@ -286,7 +312,6 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
 
     categories = sorted(tickers_by_category.keys())
     if not category:
-        # Показываем меню категорий для графика
         await update.callback_query.message.reply_text(
             "Пожалуйста, выберите категорию для построения графика:",
             reply_markup=get_categories_keyboard(categories, "growth_category")
@@ -338,7 +363,14 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
         for tx in txs_up_to_date:
             transactions_by_ticker[tx["ticker"]].append(dict(tx))
         market_value_kzt = 0.0
-        for ticker in tickers_by_category.get(category, []):
+        # Получаем актуальные цены для тикеров категории на дату d
+        tickers_in_cat = [ticker for ticker in tickers_by_category.get(category, []) if ticker in transactions_by_ticker]
+        price_tasks = []
+        for ticker in tickers_in_cat:
+            price_tasks.append(get_market_price_on_date(ticker, d))
+        prices = await asyncio.gather(*price_tasks)
+        ticker_prices = dict(zip(tickers_in_cat, prices))
+        for ticker in tickers_in_cat:
             ticker_txs = transactions_by_ticker.get(ticker, [])
             if not ticker_txs:
                 continue
@@ -364,9 +396,11 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
             for lot in fifo:
                 lot_currency = lot.get("currency", "KZT")
                 lot_rate_now = rates_by_date[d].get(lot_currency, 1.0)
-                market_value_kzt += lot["price"] * lot["qty"] * lot_rate_now
+                current_price = ticker_prices.get(ticker)
+                if current_price is None:
+                    current_price = lot["price"]
+                market_value_kzt += current_price * lot["qty"] * lot_rate_now
 
-        # Определяем притоки/оттоки за период
         if i == 0:
             cash_flow = 0
             prev_value = market_value_kzt
@@ -428,7 +462,6 @@ async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT
     elif data == "chart_growth_all":
         await send_portfolio_growth_chart(update, context)
     elif data == "chart_pie_category":
-        # Показываем меню категорий для пай-чарта
         user_id = update.effective_user.id
         portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
         categories = sorted(tickers_by_category.keys()) if tickers_by_category else []
@@ -440,7 +473,6 @@ async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT
         category = data.split("|", 1)[1]
         await send_category_pie_chart(update, context, category=category)
     elif data == "chart_growth_category":
-        # Показываем меню категорий для графика
         user_id = update.effective_user.id
         portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
         categories = sorted(tickers_by_category.keys()) if tickers_by_category else []
