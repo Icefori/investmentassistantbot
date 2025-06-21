@@ -44,9 +44,11 @@ async def get_portfolio_calculated(user_id):
 async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     user_id = update.effective_user.id
+    msg = await update.callback_query.message.reply_text("⏳ Строим пай-чарт по всему портфелю, пожалуйста, подождите...")
     await context.bot.send_chat_action(chat_id=user_id, action="upload_photo")
     portfolio, _, _ = await get_portfolio_calculated(user_id)
     if not portfolio or not portfolio.get("ticker_data") or not portfolio.get("tickers_by_category"):
+        await msg.delete()
         await update.callback_query.message.reply_text("Портфель пуст. Добавьте сделки для отображения графика.")
         return
 
@@ -57,6 +59,7 @@ async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT
             category_values[category] = value
 
     if not category_values:
+        await msg.delete()
         await update.callback_query.message.reply_text("Нет данных для построения графика.")
         return
 
@@ -78,6 +81,7 @@ async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT
     buf.seek(0)
     plt.close(fig)
 
+    await msg.delete()
     await update.callback_query.message.reply_photo(
         photo=InputFile(buf),
         caption="Пай-чарт по категориям портфеля (₸)",
@@ -87,7 +91,6 @@ async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT
 async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE, category=None):
     await update.callback_query.answer()
     user_id = update.effective_user.id
-    await context.bot.send_chat_action(chat_id=user_id, action="upload_photo")
     portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
     if not portfolio or not tickers_by_category:
         await update.callback_query.message.reply_text("Портфель пуст. Добавьте сделки для отображения графика.")
@@ -101,8 +104,18 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
         )
         return
 
+    # Только если категория выбрана — показываем сообщение о построении!
+    msg = await update.callback_query.message.reply_text("⏳ Строим пай-чарт по категории, пожалуйста, подождите...")
+    await context.bot.send_chat_action(chat_id=user_id, action="upload_photo")
+    portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
+    if not portfolio or not tickers_by_category:
+        await msg.delete()
+        await update.callback_query.message.reply_text("Портфель пуст. Добавьте сделки для отображения графика.")
+        return
+
     filtered = [portfolio["ticker_data"][ticker] for ticker in tickers_by_category.get(category, [])]
     if not filtered:
+        await msg.delete()
         await update.callback_query.message.reply_text("Нет активов в выбранной категории.")
         return
 
@@ -110,6 +123,7 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
     values = [t["market_value_kzt"] for t in filtered]
 
     if not values or sum(values) == 0:
+        await msg.delete()
         await update.callback_query.message.reply_text("Нет данных для построения графика.")
         return
 
@@ -126,6 +140,7 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
     buf.seek(0)
     plt.close(fig)
 
+    await msg.delete()
     await update.callback_query.message.reply_photo(
         photo=InputFile(buf),
         caption=f"Пай-чарт по категории: {category} (₸)",
@@ -135,9 +150,11 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
 async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     user_id = update.effective_user.id
+    msg = await update.callback_query.message.reply_text("⏳ Строим график доходности портфеля, пожалуйста, подождите...")
     await context.bot.send_chat_action(chat_id=user_id, action="upload_photo")
     portfolio, _, _ = await get_portfolio_calculated(user_id)
     if not portfolio or not portfolio.get("ticker_data"):
+        await msg.delete()
         await update.callback_query.message.reply_text("Нет данных по сделкам для построения графика.")
         return
 
@@ -145,6 +162,7 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
     txs = await conn.fetch("SELECT * FROM transactions WHERE user_id = $1 ORDER BY date", user_id)
     await conn.close()
     if not txs:
+        await msg.delete()
         await update.callback_query.message.reply_text("Нет данных по сделкам для построения графика.")
         return
 
@@ -154,6 +172,7 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
 
     all_tx_dates = sorted(datetime.strptime(tx["date"], "%d-%m-%Y").date() for tx in txs)
     if not all_tx_dates:
+        await msg.delete()
         await update.callback_query.message.reply_text("Нет данных по датам.")
         return
     start_date = all_tx_dates[0]
@@ -171,7 +190,6 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
     from collections import defaultdict, deque
 
     for d in weekly_dates:
-        # Собираем все сделки до этой недели включительно
         txs_up_to_date = [tx for tx in txs if datetime.strptime(tx["date"], "%d-%m-%Y").date() <= d]
         transactions_by_ticker = defaultdict(list)
         for tx in txs_up_to_date:
@@ -181,13 +199,13 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
         for ticker, ticker_txs in transactions_by_ticker.items():
             fifo = deque()
             currency = ticker_currency.get(ticker, "KZT")
-            # Для расчёта вложений: считаем только покупки до этой недели
             for tx in ticker_txs:
                 qty = tx["qty"]
                 price = tx["price"]
                 tx_currency = currency
+                tx_date = tx["date"]
                 if qty > 0:
-                    fifo.append({"qty": qty, "price": price, "currency": tx_currency, "date": tx["date"]})
+                    fifo.append({"qty": qty, "price": price, "currency": tx_currency, "date": tx_date})
                 elif qty < 0:
                     sell_qty = -qty
                     while sell_qty > 0 and fifo:
@@ -198,27 +216,20 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
                         else:
                             sell_qty -= lot["qty"]
                             fifo.popleft()
-            # Считаем вложения по всем оставшимся лотам (по их цене и курсу на дату покупки)
             for lot in fifo:
                 lot_currency = lot.get("currency", "KZT")
                 lot_date = datetime.strptime(lot["date"], "%d-%m-%Y").date()
                 lot_rate = rates_by_date.get(lot_date, {}).get(lot_currency, 1.0)
                 invested_kzt += lot["price"] * lot["qty"] * lot_rate
-            # Рыночная стоимость по курсу на дату d
-            rate = rates_by_date[d].get(currency, 1.0)
-            total_qty = sum(lot["qty"] for lot in fifo)
-            if total_qty > 0:
-                # Для каждого лота считаем стоимость по курсу на дату d
-                for lot in fifo:
-                    lot_currency = lot.get("currency", "KZT")
-                    lot_rate = rates_by_date[d].get(lot_currency, 1.0)
-                    market_value_kzt += lot["qty"] * lot["price"] * lot_rate
+                lot_rate_now = rates_by_date[d].get(lot_currency, 1.0)
+                market_value_kzt += lot["price"] * lot["qty"] * lot_rate_now
         invested_kzt = invested_kzt if invested_kzt > 0 else 1
         percent_changes.append(
             ((market_value_kzt - invested_kzt) / invested_kzt * 100) if invested_kzt > 0 else 0
         )
 
     if not percent_changes or all(v == 0 for v in percent_changes):
+        await msg.delete()
         await update.callback_query.message.reply_text("Недостаточно данных для построения графика.")
         return
 
@@ -235,6 +246,7 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
     buf.seek(0)
     plt.close(fig)
 
+    await msg.delete()
     await update.callback_query.message.reply_photo(
         photo=InputFile(buf),
         caption="График доходности портфеля (%)",
@@ -244,7 +256,6 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
 async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE, category=None):
     await update.callback_query.answer()
     user_id = update.effective_user.id
-    await context.bot.send_chat_action(chat_id=user_id, action="upload_photo")
     portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
     if not portfolio or not tickers_by_category:
         await update.callback_query.message.reply_text("Портфель пуст. Добавьте сделки для отображения графика.")
@@ -258,107 +269,46 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
         )
         return
 
-    conn = await connect_db()
-    txs = await conn.fetch("SELECT * FROM transactions WHERE user_id = $1 ORDER BY date", user_id)
-    await conn.close()
-    if not txs:
-        await update.callback_query.message.reply_text("Нет данных по сделкам для построения графика.")
+    # Только если категория выбрана — показываем сообщение о построении!
+    msg = await update.callback_query.message.reply_text("⏳ Строим график доходности по категории, пожалуйста, подождите...")
+    await context.bot.send_chat_action(chat_id=user_id, action="upload_photo")
+    portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
+    if not portfolio or not tickers_by_category:
+        await msg.delete()
+        await update.callback_query.message.reply_text("Портфель пуст. Добавьте сделки для отображения графика.")
         return
 
-    ticker_currency = {}
-    for ticker in tickers_by_category.get(category, []):
-        t = portfolio["ticker_data"].get(ticker)
-        if t:
-            ticker_currency[ticker] = t.get("currency", "KZT")
-
-    all_tx_dates = sorted(datetime.strptime(tx["date"], "%d-%m-%Y").date() for tx in txs)
-    if not all_tx_dates:
-        await update.callback_query.message.reply_text("Нет данных по датам.")
-        return
-    start_date = all_tx_dates[0]
-    end_date = datetime.now().date()
-    weekly_dates = get_weekly_dates(start_date, end_date)
-
-    from bot.scheduler.currency import fetch_rates_by_date
-    rates_by_date = {}
-    for d in weekly_dates:
-        rates, _ = await fetch_rates_by_date(datetime.combine(d, datetime.min.time()))
-        rates_by_date[d] = dict(rates)
-
-    percent_changes = []
-
-    from collections import defaultdict, deque
-
-    for d in weekly_dates:
-        txs_up_to_date = [tx for tx in txs if datetime.strptime(tx["date"], "%d-%m-%Y").date() <= d]
-        transactions_by_ticker = defaultdict(list)
-        for tx in txs_up_to_date:
-            transactions_by_ticker[tx["ticker"]].append(dict(tx))
-        market_value_kzt = 0.0
-        invested_kzt = 0.0
-        for ticker in tickers_by_category.get(category, []):
-            ticker_txs = transactions_by_ticker.get(ticker, [])
-            if not ticker_txs:
-                continue
-            fifo = deque()
-            currency = ticker_currency.get(ticker, "KZT")
-            # Для расчёта вложений: считаем только покупки до этой недели
-            for tx in ticker_txs:
-                qty = tx["qty"]
-                price = tx["price"]
-                tx_currency = currency
-                if qty > 0:
-                    fifo.append({"qty": qty, "price": price, "currency": tx_currency, "date": tx["date"]})
-                elif qty < 0:
-                    sell_qty = -qty
-                    while sell_qty > 0 and fifo:
-                        lot = fifo[0]
-                        if lot["qty"] > sell_qty:
-                            lot["qty"] -= sell_qty
-                            sell_qty = 0
-                        else:
-                            sell_qty -= lot["qty"]
-                            fifo.popleft()
-            # Считаем вложения по всем оставшимся лотам (по их цене и курсу на дату покупки)
-            for lot in fifo:
-                lot_currency = lot.get("currency", "KZT")
-                lot_date = datetime.strptime(lot["date"], "%d-%m-%Y").date()
-                lot_rate = rates_by_date.get(lot_date, {}).get(lot_currency, 1.0)
-                invested_kzt += lot["price"] * lot["qty"] * lot_rate
-            # Рыночная стоимость по курсу на дату d
-            rate = rates_by_date[d].get(currency, 1.0)
-            total_qty = sum(lot["qty"] for lot in fifo)
-            if total_qty > 0:
-                # Для каждого лота считаем стоимость по курсу на дату d
-                for lot in fifo:
-                    lot_currency = lot.get("currency", "KZT")
-                    lot_rate = rates_by_date[d].get(lot_currency, 1.0)
-                    market_value_kzt += lot["qty"] * lot["price"] * lot_rate
-        invested_kzt = invested_kzt if invested_kzt > 0 else 1
-        percent_changes.append(
-            ((market_value_kzt - invested_kzt) / invested_kzt * 100) if invested_kzt > 0 else 0
-        )
-
-    if not percent_changes or all(v == 0 for v in percent_changes):
-        await update.callback_query.message.reply_text("Недостаточно данных для построения графика.")
+    filtered = [portfolio["ticker_data"][ticker] for ticker in tickers_by_category.get(category, [])]
+    if not filtered:
+        await msg.delete()
+        await update.callback_query.message.reply_text("Нет активов в выбранной категории.")
         return
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.plot(weekly_dates, percent_changes, marker='o', color=plt.cm.Pastel1.colors[1])
-    ax.set_title(f"Динамика доходности категории {category} (%)")
-    ax.set_xlabel("Дата")
-    ax.set_ylabel("Доходность, %")
-    ax.grid(True)
-    fig.autofmt_xdate()
+    labels = [ticker for ticker in tickers_by_category[category]]
+    values = [t["market_value_kzt"] for t in filtered]
+
+    if not values or sum(values) == 0:
+        await msg.delete()
+        await update.callback_query.message.reply_text("Нет данных для построения графика.")
+        return
+
+    pastel_colors = plt.cm.Pastel1.colors
+    if len(labels) > len(pastel_colors):
+        pastel_colors = plt.cm.Pastel2.colors + plt.cm.Pastel1.colors
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.pie(values, labels=labels, autopct='%1.1f%%', startangle=140, colors=pastel_colors[:len(labels)])
+    ax.set_title(f"Распределение по категории: {category} (₸)")
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
     plt.close(fig)
 
+    await msg.delete()
     await update.callback_query.message.reply_photo(
         photo=InputFile(buf),
-        caption=f"График доходности категории {category} (%)",
+        caption=f"Пай-чарт по категории: {category} (₸)",
         reply_markup=get_charts_main_keyboard()
     )
 
