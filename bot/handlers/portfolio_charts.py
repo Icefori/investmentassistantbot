@@ -26,13 +26,18 @@ def get_categories_keyboard(categories, prefix):
     return InlineKeyboardMarkup(keyboard)
 
 async def get_portfolio_calculated(user_id):
-    portfolio, portfolio_rows, tickers_by_category = await calculate_portfolio(user_id)
-    return portfolio, portfolio_rows, tickers_by_category
+    result = await calculate_portfolio(user_id)
+    if not result:
+        return None, None, None
+    portfolio = result
+    tickers_by_category = result.get("tickers_by_category", {})
+    return portfolio, None, tickers_by_category
 
 async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
     user_id = update.effective_user.id
-    portfolio, portfolio_rows, _ = await get_portfolio_calculated(user_id)
-    if not portfolio_rows:
+    portfolio, _, _ = await get_portfolio_calculated(user_id)
+    if not portfolio or not portfolio.get("ticker_data"):
         await update.callback_query.answer("Портфель пуст. Добавьте сделки для отображения графика.", show_alert=True)
         return
 
@@ -62,9 +67,10 @@ async def send_portfolio_pie_chart(update: Update, context: ContextTypes.DEFAULT
     )
 
 async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_TYPE, category=None):
+    await update.callback_query.answer()
     user_id = update.effective_user.id
-    portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
-    if not portfolio_rows:
+    portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
+    if not portfolio or not tickers_by_category:
         await update.callback_query.answer("Портфель пуст. Добавьте сделки для отображения графика.", show_alert=True)
         return
 
@@ -76,7 +82,7 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
         )
         return
 
-    filtered = [portfolio["ticker_data"][ticker] for ticker in tickers_by_category[category]]
+    filtered = [portfolio["ticker_data"][ticker] for ticker in tickers_by_category.get(category, [])]
     if not filtered:
         await update.callback_query.answer("Нет активов в выбранной категории.", show_alert=True)
         return
@@ -104,9 +110,10 @@ async def send_category_pie_chart(update: Update, context: ContextTypes.DEFAULT_
     )
 
 async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
     user_id = update.effective_user.id
-    portfolio, portfolio_rows, _ = await calculate_portfolio(user_id)
-    if not portfolio_rows:
+    portfolio, _, _ = await get_portfolio_calculated(user_id)
+    if not portfolio or not portfolio.get("ticker_data"):
         await update.callback_query.answer("Нет данных по сделкам для построения графика.", show_alert=True)
         return
 
@@ -190,9 +197,10 @@ async def send_portfolio_growth_chart(update: Update, context: ContextTypes.DEFA
     )
 
 async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAULT_TYPE, category=None):
+    await update.callback_query.answer()
     user_id = update.effective_user.id
-    portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
-    if not portfolio_rows:
+    portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
+    if not portfolio or not tickers_by_category:
         await update.callback_query.answer("Портфель пуст. Добавьте сделки для отображения графика.", show_alert=True)
         return
 
@@ -229,7 +237,7 @@ async def send_category_growth_chart(update: Update, context: ContextTypes.DEFAU
         for tx in txs_up_to_date:
             transactions_by_ticker[tx["ticker"]].append(dict(tx))
         market_value_kzt = 0.0
-        for ticker in tickers_by_category[category]:
+        for ticker in tickers_by_category.get(category, []):
             ticker_txs = transactions_by_ticker.get(ticker, [])
             if not ticker_txs:
                 continue
@@ -307,8 +315,8 @@ async def portfolio_chart_callback(update: Update, context: ContextTypes.DEFAULT
         await send_category_growth_chart(update, context, category=category)
     elif data == "chart_back_to_charts_menu":
         user_id = update.effective_user.id
-        portfolio, portfolio_rows, tickers_by_category = await get_portfolio_calculated(user_id)
-        categories = sorted(tickers_by_category.keys())
+        portfolio, _, tickers_by_category = await get_portfolio_calculated(user_id)
+        categories = sorted(tickers_by_category.keys()) if tickers_by_category else []
         await update.callback_query.message.reply_text(
             "Выберите, какой график или пай-чарт вы хотите посмотреть:",
             reply_markup=get_charts_main_keyboard()
