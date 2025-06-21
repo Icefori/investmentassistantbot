@@ -7,6 +7,7 @@ import re
 import aiohttp
 
 from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
 
 ASK_NAME, ASK_TIMEZONE, ASK_CUSTOM_TIMEZONE = range(3)
 
@@ -83,7 +84,7 @@ async def ask_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ask_custom_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz_input = update.message.text.strip()
-    # Сначала пробуем как pytz-таймзону
+    # Сначала пробуем как pytz-таймзуна
     try:
         pytz.timezone(tz_input)
         context.user_data["timezone"] = tz_input
@@ -91,25 +92,27 @@ async def ask_custom_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception:
         pass
 
-    # Если не pytz, пробуем найти по названию города через geopy + GeoNames API
+    # Пробуем найти по названию города через geopy (на любом языке)
     geolocator = Nominatim(user_agent="investmentbot")
-    try:
-        location = geolocator.geocode(tz_input, language="en")
-        if location:
-            lat, lng = location.latitude, location.longitude
-            url = f"http://api.geonames.org/timezoneJSON?lat={lat}&lng={lng}&username={GEONAMES_USERNAME}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    data = await resp.json()
-                    tz_found = data.get("timezoneId")
-                    if tz_found:
-                        context.user_data["timezone"] = tz_found
-                        return await finish_registration(update, context)
-    except Exception:
-        pass
+    location = None
+    for lang in ["en", "ru", "uk"]:
+        try:
+            location = geolocator.geocode(tz_input, language=lang)
+            if location:
+                break
+        except Exception:
+            continue
+
+    if location:
+        lat, lng = location.latitude, location.longitude
+        tf = TimezoneFinder()
+        tz_found = tf.timezone_at(lng=lng, lat=lat)
+        if tz_found:
+            context.user_data["timezone"] = tz_found
+            return await finish_registration(update, context)
 
     await update.message.reply_text(
-        "❗ Не удалось распознать таймзону или город. Введите корректное название, например: Кокшетау, Europe/Berlin, Asia/Almaty, America/New_York."
+        "❗ Не удалось распознать таймзону или город. Введите корректное название, например: Кокшетау, Кyiv, Astana, Караганда, Berlin, Europe/Berlin, Asia/Almaty, America/New_York."
     )
     return ASK_CUSTOM_TIMEZONE
 
