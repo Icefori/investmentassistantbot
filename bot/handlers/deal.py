@@ -33,7 +33,20 @@ async def handle_deal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        ticker = parts[0].upper()
+        ticker = parts[0]
+
+        # Error check: first 3 or 4 letters must be uppercase
+        prefix = ticker[:4] if len(ticker) >= 4 else ticker
+        if not prefix[:3].isupper() or (len(prefix) == 4 and not prefix.isupper()):
+            suggestion = ticker.upper()
+            await update.message.reply_text(
+                f"❗ Похоже, что тикер `{escape_md(ticker)}` введён с маленькими буквами в начале.\n"
+                f"Возможно, вы имели в виду `{escape_md(suggestion)}`?\n"
+                "Тикер должен начинаться с 3-4 заглавных букв.",
+                parse_mode="MarkdownV2"
+            )
+            return
+
         qty = int(parts[1])
         price = float(parts[2].replace(",", ".").strip())
         currency = None
